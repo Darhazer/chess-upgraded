@@ -1,23 +1,26 @@
 import { Chess } from 'chess.js';
+import {
+  FILES,
+  fileIdx,
+  rankIdx,
+  customAttackSquares,
+  customMoveTargets,
+  validateCustomPattern,
+} from '../../shared/upgrade-rules.js';
 
 // Wrapper around chess.js with the "upgrade" extension layered on top.
 //
 // Each side has an upgrade bar that fills 1 unit per move (capped at
 // barMax). When full, the player can spend a turn to mark one of their
 // non-pawn pieces as upgraded. Upgraded pieces gain extra moves (see
-// _customMovesFor / _customAttacksFor). The upgrade follows the piece
-// across moves and is lost when the piece is captured.
+// shared/upgrade-rules.js). The upgrade follows the piece across moves
+// and is lost when the piece is captured.
 //
 // chess.js drives standard moves and provides square-attack queries.
 // Custom moves bypass chess.move() and instead build the post-move FEN
 // by hand. King-safety considers BOTH standard attacks (via chess.js
 // isAttacked) AND attacks via upgraded enemy pieces — so an upgraded
 // rook can deliver/escape check via its diagonal step, etc.
-
-const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-const fileIdx = (sq) => sq.charCodeAt(0) - 97;
-const rankIdx = (sq) => parseInt(sq[1], 10) - 1;
-const sqOf = (f, r) => FILES[f] + (r + 1);
 
 export const DEFAULT_BAR_MAX = 3;
 
@@ -203,7 +206,7 @@ export class RulesEngine {
     const piece = this.chess.get(move.from);
     if (!piece || piece.color !== color) return { ok: false, reason: 'not your piece' };
 
-    const validation = this._validateCustomPattern(piece.type, move.from, move.to);
+    const validation = validateCustomPattern(piece.type, move.from, move.to);
     if (!validation.ok) return validation;
 
     const dest = this.chess.get(move.to);
@@ -237,34 +240,6 @@ export class RulesEngine {
       to: move.to,
       captured: dest ? dest.type : undefined,
     };
-  }
-
-  _validateCustomPattern(type, from, to) {
-    const df = fileIdx(to) - fileIdx(from);
-    const dr = rankIdx(to) - rankIdx(from);
-    const adf = Math.abs(df);
-    const adr = Math.abs(dr);
-
-    if (type === 'r') {
-      if (adf === 1 && adr === 1) return { ok: true };
-      return { ok: false, reason: 'illegal upgraded rook move' };
-    }
-    if (type === 'b') {
-      if ((adf === 1 && adr === 0) || (adf === 0 && adr === 1)) return { ok: true };
-      return { ok: false, reason: 'illegal upgraded bishop move' };
-    }
-    if (type === 'n') {
-      if (adf === 2 && adr === 2) return { ok: true };
-      return { ok: false, reason: 'illegal upgraded knight move' };
-    }
-    if (type === 'k' || type === 'q') {
-      const isOrtho2 = (adf === 2 && adr === 0) || (adf === 0 && adr === 2);
-      const isDiag2 = adf === 2 && adr === 2;
-      if (!isOrtho2 && !isDiag2)
-        return { ok: false, reason: 'teleport must be 2 squares in any direction' };
-      return { ok: true, noCapture: true };
-    }
-    return { ok: false, reason: 'piece cannot be upgraded' };
   }
 
   _customSan(type, from, to, captured) {
@@ -368,29 +343,9 @@ export class RulesEngine {
     for (const sq of upgraded) {
       const p = chess.get(sq);
       if (!p || p.color !== opp) continue;
-      if (this._customAttacksFor(sq, p.type).includes(kingSq)) return true;
+      if (customAttackSquares(p.type, sq).includes(kingSq)) return true;
     }
     return false;
-  }
-
-  // Squares that an upgraded piece of `type` at `sq` can capture-attack
-  // via its bonus move. King/queen teleports cannot capture, so they
-  // contribute no attacks here (their normal moves are covered by chess.js).
-  _customAttacksFor(sq, type) {
-    if (type !== 'r' && type !== 'b' && type !== 'n') return [];
-    const f = fileIdx(sq);
-    const r = rankIdx(sq);
-    let deltas;
-    if (type === 'r') deltas = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
-    else if (type === 'b') deltas = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    else deltas = [[2, 2], [2, -2], [-2, 2], [-2, -2]];
-    const out = [];
-    for (const [df, dr] of deltas) {
-      const tf = f + df, tr = r + dr;
-      if (tf < 0 || tf > 7 || tr < 0 || tr > 7) continue;
-      out.push(sqOf(tf, tr));
-    }
-    return out;
   }
 
   _hasAnyLegalMove(color) {
@@ -412,7 +367,7 @@ export class RulesEngine {
     for (const sq of this.upgraded) {
       const piece = this.chess.get(sq);
       if (!piece || piece.color !== color) continue;
-      const targets = this._customMovesFor(sq, piece.type, color);
+      const targets = customMoveTargets(piece.type, sq, color, this.chess);
       for (const target of targets) {
         const dest = this.chess.get(target);
         const candidateFen = this._buildFenAfterCustom(sq, target, color, !!dest, false);
@@ -428,29 +383,4 @@ export class RulesEngine {
     return false;
   }
 
-  _customMovesFor(from, type, color) {
-    const f = fileIdx(from);
-    const r = rankIdx(from);
-    let deltas = [];
-    if (type === 'r') deltas = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
-    else if (type === 'b') deltas = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    else if (type === 'n') deltas = [[2, 2], [2, -2], [-2, 2], [-2, -2]];
-    else if (type === 'k' || type === 'q')
-      deltas = [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [2, -2], [-2, 2], [-2, -2]];
-
-    const targets = [];
-    for (const [df, dr] of deltas) {
-      const tf = f + df, tr = r + dr;
-      if (tf < 0 || tf > 7 || tr < 0 || tr > 7) continue;
-      const target = sqOf(tf, tr);
-      const dest = this.chess.get(target);
-      if (type === 'k' || type === 'q') {
-        if (dest) continue;
-      } else {
-        if (dest && dest.color === color) continue;
-      }
-      targets.push(target);
-    }
-    return targets;
-  }
 }

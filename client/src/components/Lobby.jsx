@@ -1,34 +1,26 @@
 import { useState } from 'react';
-import { socket } from '../socket.js';
+import { useSocket } from '../services/socket-context.jsx';
+import { lobbyApi } from '../services/lobby-api.js';
 
 export default function Lobby({ onJoined }) {
+  const { socket } = useSocket();
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
 
-  const playPublic = () => {
+  const run = async (action) => {
     setError('');
-    socket.emit('lobby:public', { name }, (res) => {
-      if (res?.ok) onJoined({ code: res.code, color: res.color });
-      else setError(res?.error || 'failed');
-    });
+    const res = await action();
+    if (res.ok) onJoined({ code: res.code, color: res.color });
+    else setError(res.error || 'failed');
   };
 
-  const createPrivate = () => {
-    setError('');
-    socket.emit('lobby:create', { name }, (res) => {
-      if (res?.ok) onJoined({ code: res.code, color: res.color });
-      else setError(res?.error || 'failed');
-    });
-  };
-
+  const playPublic = () => run(() => lobbyApi.public(socket, name));
+  const createPrivate = () => run(() => lobbyApi.create(socket, name));
   const joinPrivate = () => {
-    setError('');
-    if (!code.trim()) return setError('enter a code');
-    socket.emit('lobby:join', { code: code.trim().toUpperCase(), name }, (res) => {
-      if (res?.ok) onJoined({ code: res.code, color: res.color });
-      else setError(res?.error || 'failed');
-    });
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) return setError('enter a code');
+    return run(() => lobbyApi.join(socket, trimmed, name));
   };
 
   return (

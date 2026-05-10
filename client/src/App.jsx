@@ -1,46 +1,33 @@
-import { useEffect, useState } from 'react';
-import { socket } from './socket.js';
+import { useEffect, useRef, useState } from 'react';
+import { useSocket, useSocketEvent } from './services/socket-context.jsx';
+import { lobbyApi } from './services/lobby-api.js';
 import Lobby from './components/Lobby.jsx';
 import Game from './components/Game.jsx';
 
 export default function App() {
+  const { socket, connected, reset } = useSocket();
   const [room, setRoom] = useState(null); // { code, color }
   const [state, setState] = useState(null); // server-broadcast room state
-  const [connected, setConnected] = useState(socket.connected);
 
+  useSocketEvent('room:state', setState);
+
+  // Auto-join via ?room=CODE in the URL. Fire once per session — we don't
+  // want this re-running every time `room` flips back to null on Leave.
+  const urlJoinAttempted = useRef(false);
   useEffect(() => {
-    const onConnect = () => setConnected(true);
-    const onDisconnect = () => setConnected(false);
-    const onRoomState = (s) => setState(s);
-
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-    socket.on('room:state', onRoomState);
-
-    return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('room:state', onRoomState);
-    };
-  }, []);
-
-  // Auto-join via ?room=CODE in the URL.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('room');
-    if (code && !room && connected) {
-      socket.emit('lobby:join', { code }, (res) => {
-        if (res?.ok) setRoom({ code: res.code, color: res.color });
-      });
-    }
-  }, [connected, room]);
+    if (urlJoinAttempted.current || !connected) return;
+    const code = new URLSearchParams(window.location.search).get('room');
+    if (!code) return;
+    urlJoinAttempted.current = true;
+    lobbyApi.join(socket, code).then((res) => {
+      if (res.ok) setRoom({ code: res.code, color: res.color });
+    });
+  }, [connected, socket]);
 
   const leave = () => {
     setRoom(null);
     setState(null);
-    // simplest reset: reconnect socket so server forgets us
-    socket.disconnect();
-    socket.connect();
+    reset();
     if (window.location.search) {
       window.history.replaceState({}, '', window.location.pathname);
     }
@@ -55,7 +42,7 @@ export default function App() {
         </span>
       </header>
       {!room ? (
-        <Lobby onJoined={(r) => setRoom(r)} />
+        <Lobby onJoined={setRoom} />
       ) : (
         <Game room={room} state={state} onLeave={leave} />
       )}
