@@ -59,10 +59,13 @@ export function useSocketEvent(event, handler) {
 }
 
 // Promise wrapper for emit-with-ack. Always resolves; failures arrive as
-// `{ ok: false, error }` so call sites don't need try/catch.
-export function emitWithAck(socket, event, payload) {
+// `{ ok: false, error }` so call sites don't need try/catch. The timeout
+// matters when the socket is disconnected — without it, emits buffer
+// silently and `await emitWithAck(...)` hangs forever.
+export function emitWithAck(socket, event, payload, timeoutMs = 5000) {
   return new Promise((resolve) => {
-    socket.emit(event, payload, (res) => {
+    socket.timeout(timeoutMs).emit(event, payload, (err, res) => {
+      if (err) return resolve({ ok: false, error: 'timeout' });
       resolve(res || { ok: false, error: 'no response' });
     });
   });

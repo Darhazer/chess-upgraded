@@ -38,9 +38,13 @@ export class RoomStore {
   // joiner would.
   addBot(room) {
     if (room.players.length >= 2) return null;
-    room.players.push({ socketId: '__bot__', color: 'b', name: 'Computer' });
+    room.players.push({ socketId: '__bot__', playerId: '__bot__', color: 'b', name: 'Computer' });
     if (room.players.length === 2) room.status = 'playing';
     return 'b';
+  }
+
+  findByPlayerId(room, playerId) {
+    return room.players.find((p) => p.playerId === playerId);
   }
 
   get(code) {
@@ -67,10 +71,16 @@ export class RoomStore {
 
   // Add a player. Creator (first to arrive) plays white.
   // Returns the assigned color, or null if the room is full.
-  addPlayer(room, { socketId, name }) {
+  addPlayer(room, { socketId, playerId, name }) {
     if (room.players.length >= 2) return null;
     const color = room.players.length === 0 ? 'w' : 'b';
-    room.players.push({ socketId, color, name: name || (color === 'w' ? 'White' : 'Black') });
+    room.players.push({
+      socketId,
+      playerId,
+      color,
+      name: name || (color === 'w' ? 'White' : 'Black'),
+      disconnectedAt: null,
+    });
     if (room.players.length === 2) room.status = 'playing';
     return color;
   }
