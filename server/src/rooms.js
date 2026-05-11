@@ -11,12 +11,13 @@ export class RoomStore {
     this.barMax = barMax;
   }
 
-  createRoom({ visibility }) {
+  createRoom({ visibility, mode = 'pvp' }) {
     let code;
     do { code = codeId(); } while (this.rooms.has(code));
     const room = {
       code,
-      visibility, // 'public' | 'private'
+      visibility, // 'public' | 'private' | 'bot'
+      mode,       // 'pvp' | 'bot'
       players: [], // [{ socketId, color, name }]
       engine: new RulesEngine({ barMax: this.barMax }),
       createdAt: Date.now(),
@@ -25,6 +26,21 @@ export class RoomStore {
     };
     this.rooms.set(code, room);
     return room;
+  }
+
+  createBotRoom() {
+    return this.createRoom({ visibility: 'bot', mode: 'bot' });
+  }
+
+  // Seat the synthetic opponent as black. Called *after* the human is
+  // added (so addPlayer's "first arrival is white" rule assigns them
+  // white), and flips the room to 'playing' the same way a second human
+  // joiner would.
+  addBot(room) {
+    if (room.players.length >= 2) return null;
+    room.players.push({ socketId: '__bot__', color: 'b', name: 'Computer' });
+    if (room.players.length === 2) room.status = 'playing';
+    return 'b';
   }
 
   get(code) {
@@ -71,6 +87,7 @@ export class RoomStore {
     return {
       code: room.code,
       visibility: room.visibility,
+      mode: room.mode,
       status: room.status,
       players: room.players.map((p) => ({ color: p.color, name: p.name })),
       result: room.result || game.result,

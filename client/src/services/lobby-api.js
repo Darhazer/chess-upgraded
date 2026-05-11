@@ -6,4 +6,5 @@ export const lobbyApi = {
   public: (socket, name) => emitWithAck(socket, 'lobby:public', { name }),
   create: (socket, name) => emitWithAck(socket, 'lobby:create', { name }),
   join: (socket, code, name) => emitWithAck(socket, 'lobby:join', { code, name }),
+  bot: (socket, name) => emitWithAck(socket, 'lobby:bot', { name }),
 };

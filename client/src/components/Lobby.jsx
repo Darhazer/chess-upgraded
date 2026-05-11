@@ -16,6 +16,7 @@ export default function Lobby({ onJoined }) {
   };
 
   const playPublic = () => run(() => lobbyApi.public(socket, name));
+  const playBot = () => run(() => lobbyApi.bot(socket, name));
   const createPrivate = () => run(() => lobbyApi.create(socket, name));
   const joinPrivate = () => {
     const trimmed = code.trim().toUpperCase();
@@ -32,6 +33,7 @@ export default function Lobby({ onJoined }) {
 
       <div className="lobby-actions">
         <button className="primary" onClick={playPublic}>Play public</button>
+        <button onClick={playBot}>Play vs computer</button>
         <button onClick={createPrivate}>Create private room</button>
       </div>
 

@@ -37,6 +37,78 @@ export class RulesEngine {
   turn() { return this.chess.turn(); }
   fen() { return this.chess.fen(); }
 
+  clone() {
+    const copy = new RulesEngine({ barMax: this.barMax });
+    copy.chess = new Chess(this.chess.fen());
+    copy.upgraded = new Set(this.upgraded);
+    copy.bar = { ...this.bar };
+    copy.history = this.history.slice();
+    copy.over = this.over ? { ...this.over } : null;
+    return copy;
+  }
+
+  // Enumerate every legal action for `color` (defaults to side to move):
+  // standard moves, upgraded-piece custom moves, and (when the bar is full
+  // and not in check) one upgrade-pick action per eligible piece.
+  listActions(color = this.turn()) {
+    if (this.over) return [];
+    const actions = [];
+
+    const stdMoves = this.chess.moves({ verbose: true });
+    for (const m of stdMoves) {
+      if (m.color !== color) continue;
+      const result = this.chess.move(m);
+      const prevUpgraded = new Set(this.upgraded);
+      this._transferUpgradedForStandardMove(result);
+      const safe = !this._isInCheck(color);
+      this.upgraded = prevUpgraded;
+      this.chess.undo();
+      if (safe) {
+        const action = { kind: 'move', from: m.from, to: m.to };
+        if (m.promotion) action.promotion = m.promotion;
+        actions.push(action);
+      }
+    }
+
+    for (const sq of this.upgraded) {
+      const piece = this.chess.get(sq);
+      if (!piece || piece.color !== color) continue;
+      const targets = customMoveTargets(piece.type, sq, color, this.chess);
+      for (const target of targets) {
+        const dest = this.chess.get(target);
+        const candidateFen = this._buildFenAfterCustom(sq, target, color, !!dest, false);
+        const candidateChess = new Chess(candidateFen);
+        const candidateUpgraded = new Set(this.upgraded);
+        candidateUpgraded.delete(sq);
+        candidateUpgraded.delete(target);
+        candidateUpgraded.add(target);
+        if (!this._isInCheckOn(candidateChess, candidateUpgraded, color)) {
+          actions.push({ kind: 'custom', from: sq, to: target });
+        }
+      }
+    }
+
+    if (this.bar[color] >= this.barMax && !this._isInCheck(color)) {
+      const board = this.chess.board();
+      for (let r = 0; r < 8; r++) {
+        for (let f = 0; f < 8; f++) {
+          const p = board[r][f];
+          if (!p || p.color !== color || p.type === 'p') continue;
+          const sq = FILES[f] + (8 - r);
+          if (this.upgraded.has(sq)) continue;
+          actions.push({ kind: 'upgrade', square: sq });
+        }
+      }
+    }
+
+    return actions;
+  }
+
+  applyAction(action) {
+    if (action.kind === 'upgrade') return this.tryUpgrade(action.square);
+    return this.tryMove(action);
+  }
+
   publicState() {
     return {
       fen: this.fen(),
