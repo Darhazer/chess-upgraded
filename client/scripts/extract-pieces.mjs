@@ -2,7 +2,7 @@
 // and emit them as a TS/JS map we can inline into the app. The package
 // doesn't export defaultPieces, so we evaluate the runtime jsx calls
 // against react/jsx-runtime ourselves.
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
