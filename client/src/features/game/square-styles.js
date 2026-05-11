@@ -39,6 +39,11 @@ export function dragHintLayer(hints) {
   return out;
 }
 
+export function selectedSquareLayer(square) {
+  if (!square) return null;
+  return { [square]: { background: 'rgba(106, 169, 255, 0.35)' } };
+}
+
 export function mergeSquareStyles(...layers) {
   const out = {};
   for (const layer of layers) {

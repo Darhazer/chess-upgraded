@@ -1,9 +1,15 @@
+import { useMemo } from 'react';
 import UpgradeBar from './UpgradeBar.jsx';
 import MoveHistory from './MoveHistory.jsx';
 
 const colorName = (c) => (c === 'w' ? 'White' : 'Black');
 
-function Invite({ url, onCopy }) {
+function Invite({ roomCode }) {
+  const url = useMemo(
+    () => `${window.location.origin}${window.location.pathname}?room=${roomCode}`,
+    [roomCode]
+  );
+  const onCopy = () => navigator.clipboard?.writeText(url);
   return (
     <div className="invite">
       <p>Share this to invite a player:</p>
@@ -35,8 +41,6 @@ export default function Sidebar({
   opponentColor,
   upgradeMode,
   canUpgrade,
-  inviteUrl,
-  onCopyInvite,
   onStartUpgrade,
   onCancelUpgrade,
   onResign,
@@ -57,7 +61,7 @@ export default function Sidebar({
         </div>
       </div>
 
-      {status === 'waiting' && <Invite url={inviteUrl} onCopy={onCopyInvite} />}
+      {status === 'waiting' && <Invite roomCode={room.code} />}
 
       {status === 'playing' && (
         <>

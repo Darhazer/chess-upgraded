@@ -3,6 +3,7 @@ import { useSocket, useSocketEvent } from './services/socket-context.jsx';
 import { lobbyApi } from './services/lobby-api.js';
 import Lobby from './components/Lobby.jsx';
 import Game from './components/Game.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 
 export default function App() {
   const { socket, connected, reset } = useSocket();
@@ -44,7 +45,9 @@ export default function App() {
       {!room ? (
         <Lobby onJoined={setRoom} />
       ) : (
-        <Game room={room} state={state} onLeave={leave} />
+        <ErrorBoundary key={room.code} onReset={leave}>
+          <Game room={room} state={state} onLeave={leave} />
+        </ErrorBoundary>
       )}
     </div>
   );

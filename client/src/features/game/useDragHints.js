@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useLatest } from '../../hooks/useLatest.js';
-import { customMoveTargets } from '../../../../shared/upgrade-rules.js';
+import { legalTargets } from './move-targets.js';
 
 // Manages the legal-target highlight set shown while a piece is being
 // dragged. Two subtleties baked in here so callers don't have to know:
@@ -23,16 +23,7 @@ export function useDragHints({ myTurn, upgradeMode, color, local, upgradedSet })
     if (!s.myTurn || s.upgradeMode) return;
     const piece = s.local.get(sourceSquare);
     if (!piece || piece.color !== s.color) return;
-
-    const targets = new Set();
-    for (const m of s.local.moves({ square: sourceSquare, verbose: true })) {
-      targets.add(m.to);
-    }
-    if (s.upgradedSet.has(sourceSquare)) {
-      for (const t of customMoveTargets(piece.type, sourceSquare, piece.color, s.local)) {
-        targets.add(t);
-      }
-    }
+    const targets = legalTargets(s.local, sourceSquare, s.upgradedSet);
     setTimeout(() => setHints(targets), 0);
   }, [stateRef]);
 
@@ -40,5 +31,8 @@ export function useDragHints({ myTurn, upgradeMode, color, local, upgradedSet })
     setTimeout(() => setHints(null), 0);
   }, []);
 
-  return { hints, onDragBegin, onDragEnd, clearHints: () => setHints(null) };
+  return useMemo(
+    () => ({ hints, onDragBegin, onDragEnd }),
+    [hints, onDragBegin, onDragEnd]
+  );
 }

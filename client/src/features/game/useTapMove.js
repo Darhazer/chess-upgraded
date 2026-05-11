@@ -1,0 +1,32 @@
+import { useCallback, useMemo } from 'react';
+import { legalTargets } from './move-targets.js';
+import { computeTapAction } from './tap-action.js';
+
+// Tap-to-move counterpart of useDragHints. The pure state machine lives
+// in tap-action.js; this hook just feeds React state into it. `selected`
+// is owned by the caller so drag can clear it without going through here.
+export function useTapMove({ myTurn, upgradeMode, color, local, upgradedSet, submitMove, selected, setSelected }) {
+  const effectiveSelected = myTurn && !upgradeMode ? selected : null;
+
+  const targets = useMemo(
+    () => (effectiveSelected ? legalTargets(local, effectiveSelected, upgradedSet) : null),
+    [effectiveSelected, local, upgradedSet]
+  );
+
+  const onSquareClick = useCallback(
+    (square) => {
+      const piece = local.get(square);
+      const action = computeTapAction({
+        myTurn, upgradeMode, color, selected: effectiveSelected, targets, piece, square,
+      });
+      if (action.select !== undefined) setSelected(action.select);
+      if (action.move) submitMove(action.move.from, action.move.to);
+    },
+    [myTurn, upgradeMode, local, color, effectiveSelected, targets, submitMove, setSelected]
+  );
+
+  return useMemo(
+    () => ({ selected: effectiveSelected, targets, onSquareClick }),
+    [effectiveSelected, targets, onSquareClick]
+  );
+}

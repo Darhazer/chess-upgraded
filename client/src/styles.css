@@ -178,3 +178,29 @@ button:disabled {
 }
 
 .board { display: flex; justify-content: center; }
+
+.error-boundary {
+  max-width: 480px;
+  margin: 40px auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.error-boundary h3 { margin: 0; }
+
+@media (max-width: 720px) {
+  .app { padding: 12px; }
+  .app-header { margin-bottom: 12px; }
+  .app-header h1 { font-size: 22px; }
+  .game {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .game .board { order: 1; }
+  .game .sidebar { order: 2; padding: 12px; gap: 12px; }
+  .history ol { max-height: 160px; }
+}
