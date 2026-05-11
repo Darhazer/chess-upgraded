@@ -2,6 +2,8 @@
 
 Multiplayer chess with extended rules. Two players, real-time, browser-based. Built on a Node.js + Socket.IO server and a React (Vite) client.
 
+Play at https://chess-upgraded.com
+
 ## Rules
 
 Standard chess rules apply (chess.js handles validation). On top of that, each player has an **upgrade bar** that fuels a piece-upgrade ability:
