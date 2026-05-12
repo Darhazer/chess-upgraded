@@ -8,18 +8,27 @@ Play at https://chess-upgraded.com
 
 Standard chess rules apply (chess.js handles validation). On top of that, each player has an **upgrade bar** that fuels a piece-upgrade ability:
 
-- **Upgrade bar** — fills 1 unit per move. Once full, the player can spend a turn to upgrade one of their non-pawn pieces. The bar caps at full and stays there until used; using it ends the turn (no move that turn) and resets the bar to 0.
+- **Upgrade bar** — fills 1 unit per move. Once full, the player can spend a turn to upgrade one of their pieces. The bar caps at full and stays there until used; using it ends the turn (no move that turn) and resets the bar to 0.
 - **Configurable threshold** — defaults to 3 moves to fill. Override with `UPGRADE_BAR_MAX=10` (or any value) on the server.
-- **Restrictions** — pawns cannot be upgraded; an already-upgraded piece cannot be re-upgraded; you cannot upgrade while in check (must address check first). The upgrade follows the piece across moves and is lost when the piece is captured.
+- **Restrictions** — an already-upgraded piece cannot be re-upgraded; you cannot upgrade while in check (must address check first). The upgrade follows the piece across moves and is lost when the piece is captured.
 
-Upgraded pieces gain extra moves on top of their normal ones:
+Most upgraded pieces gain extra moves *on top of* their normal ones:
 
 - **Rook** — also moves 1 square diagonally (one-step only).
 - **Bishop** — also moves 1 square orthogonally (one-step only).
 - **Knight** — also makes a 2,2 jump in addition to its normal L-shape (4 new target squares).
 - **King** and **Queen** — gain a **teleport**: exactly 2 squares in any of the 8 directions, may pass over a single intermediate piece, **target square must be empty** (no capture by teleport).
 
-Game-over detection takes the upgraded moves into account: an upgraded king can escape what would otherwise be checkmate, an upgraded rook's diagonal step can block a check, etc.
+The **pawn** is the exception — upgrading it *replaces* its moveset rather than extending it:
+
+- It moves **one square diagonally forward** to an **empty** square (the diagonal is now a move, not a capture).
+- It captures **only the piece directly in front of it** — one square straight ahead (forward is now a capture, not a move).
+- It no longer pushes forward 1–2 squares and no longer captures on the diagonal.
+- It also no longer threatens its old diagonal-capture squares for check purposes — only the square directly ahead.
+
+**Pawn promotion:** any pawn that reaches the last rank promotes (auto-queens). A normal pawn gets there the usual way — a standard push or diagonal capture. An **upgraded** pawn gets there via its replaced moveset: a diagonal step onto an empty back-rank square, or a forward capture of a piece on the back rank. On promotion the piece becomes a regular queen and **loses its upgrade marker** — it's a fresh queen, not an upgraded one. (As everywhere else, an upgraded pawn cannot capture on the diagonal, so it can't promote by a diagonal capture the way a normal pawn does.)
+
+Game-over detection takes the upgraded moves into account: an upgraded king can escape what would otherwise be checkmate, an upgraded rook's diagonal step can block a check, an upgraded pawn's forward capture can deliver check, etc.
 
 Visual cues:
 

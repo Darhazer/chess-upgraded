@@ -122,7 +122,7 @@ export default function Game({ room, state, onLeave }) {
     (square) => {
       const piece = g.local.get(square);
       if (!piece || piece.color !== room.color) return;
-      if (piece.type === 'p' || g.upgradedSet.has(square)) return;
+      if (g.upgradedSet.has(square)) return;
       setMoveError('');
       gameApi.upgrade(socket, room.code, square).then((res) => {
         if (res.ok) setUpgradeMode(false);

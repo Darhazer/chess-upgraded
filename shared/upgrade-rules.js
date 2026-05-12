@@ -27,11 +27,34 @@ function deltasFor(type) {
   return [];
 }
 
+const pawnDir = (color) => (color === 'w' ? 1 : -1);
+
 // Squares an upgraded piece can MOVE to via its bonus pattern, ignoring
 // king-safety. Used both for server move enumeration and client drag hints.
 export function customMoveTargets(type, from, color, chess) {
   const f = fileIdx(from);
   const r = rankIdx(from);
+
+  if (type === 'p') {
+    const dr = pawnDir(color);
+    const tr = r + dr;
+    if (tr < 0 || tr > 7) return [];
+    const targets = [];
+    // Diagonal forward: move only (target must be empty).
+    for (const df of [-1, 1]) {
+      const tf = f + df;
+      if (tf < 0 || tf > 7) continue;
+      const target = sqOf(tf, tr);
+      if (chess.get(target)) continue;
+      targets.push(target);
+    }
+    // Orthogonal forward: capture only (target must hold an enemy).
+    const fwd = sqOf(f, tr);
+    const dest = chess.get(fwd);
+    if (dest && dest.color !== color) targets.push(fwd);
+    return targets;
+  }
+
   const teleport = type === 'k' || type === 'q';
   const targets = [];
   for (const [df, dr] of deltasFor(type)) {
@@ -52,11 +75,17 @@ export function customMoveTargets(type, from, color, chess) {
 
 // Squares an upgraded piece ATTACKS via its bonus pattern. King/queen
 // teleports cannot capture, so they contribute no attacks here — their
-// normal attack patterns are covered by chess.js.
-export function customAttackSquares(type, from) {
-  if (type !== 'r' && type !== 'b' && type !== 'n') return [];
+// normal attack patterns are covered by chess.js. Pawns are color-aware:
+// an upgraded pawn captures the square directly in front of it.
+export function customAttackSquares(type, from, color) {
   const f = fileIdx(from);
   const r = rankIdx(from);
+  if (type === 'p') {
+    const tr = r + pawnDir(color);
+    if (tr < 0 || tr > 7) return [];
+    return [sqOf(f, tr)];
+  }
+  if (type !== 'r' && type !== 'b' && type !== 'n') return [];
   const out = [];
   for (const [df, dr] of deltasFor(type)) {
     const tf = f + df;
@@ -68,13 +97,25 @@ export function customAttackSquares(type, from) {
 }
 
 // Does (from, to) match the upgraded `type`'s bonus pattern?
-// Returns { ok: true, noCapture? } or { ok: false, reason }.
-export function validateCustomPattern(type, from, to) {
+// Returns { ok: true, noCapture?, mustCapture?, promotion? } or
+// { ok: false, reason }. `promotion` is set for an upgraded pawn whose
+// move lands on the back rank — the engine auto-queens it (and the piece
+// drops its upgrade marker, since it's no longer a pawn).
+export function validateCustomPattern(type, from, to, color) {
   const df = fileIdx(to) - fileIdx(from);
   const dr = rankIdx(to) - rankIdx(from);
   const adf = Math.abs(df);
   const adr = Math.abs(dr);
 
+  if (type === 'p') {
+    const fwd = pawnDir(color);
+    if (dr !== fwd) return { ok: false, reason: 'illegal upgraded pawn move' };
+    const toRank = rankIdx(to);
+    const promotion = toRank === 0 || toRank === 7;
+    if (adf === 1) return { ok: true, noCapture: true, promotion };
+    if (adf === 0) return { ok: true, mustCapture: true, promotion };
+    return { ok: false, reason: 'illegal upgraded pawn move' };
+  }
   if (type === 'r') {
     if (adf === 1 && adr === 1) return { ok: true };
     return { ok: false, reason: 'illegal upgraded rook move' };

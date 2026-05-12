@@ -22,7 +22,7 @@ export function upgradePickableLayer(local, color, upgradedSet) {
   for (let r = 0; r < 8; r++) {
     for (let f = 0; f < 8; f++) {
       const p = board[r][f];
-      if (!p || p.color !== color || p.type === 'p') continue;
+      if (!p || p.color !== color) continue;
       const sq = FILES[f] + (8 - r);
       if (upgradedSet.has(sq)) continue;
       out[sq] = { background: 'rgba(106, 169, 255, 0.45)' };

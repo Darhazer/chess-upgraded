@@ -12,15 +12,20 @@ import {
 //
 // Each side has an upgrade bar that fills 1 unit per move (capped at
 // barMax). When full, the player can spend a turn to mark one of their
-// non-pawn pieces as upgraded. Upgraded pieces gain extra moves (see
-// shared/upgrade-rules.js). The upgrade follows the piece across moves
-// and is lost when the piece is captured.
+// pieces as upgraded. Most upgraded pieces *gain* extra moves on top of
+// their normal ones (see shared/upgrade-rules.js). A pawn is the
+// exception: upgrading it *replaces* its moveset — it no longer pushes
+// forward or captures on the diagonal; instead it steps one square
+// diagonally (no capture) and captures the piece directly ahead. The
+// upgrade follows the piece across moves and is lost when it's captured.
 //
 // chess.js drives standard moves and provides square-attack queries.
 // Custom moves bypass chess.move() and instead build the post-move FEN
-// by hand. King-safety considers BOTH standard attacks (via chess.js
-// isAttacked) AND attacks via upgraded enemy pieces — so an upgraded
-// rook can deliver/escape check via its diagonal step, etc.
+// by hand. King-safety considers BOTH standard attacks (via chess.js,
+// minus the diagonal attack an upgraded enemy pawn no longer has) AND
+// attacks via upgraded enemy pieces — so an upgraded rook can
+// deliver/escape check via its diagonal step, an upgraded pawn via its
+// forward capture, etc.
 
 export const DEFAULT_BAR_MAX = 3;
 
@@ -57,6 +62,7 @@ export class RulesEngine {
     const stdMoves = this.chess.moves({ verbose: true });
     for (const m of stdMoves) {
       if (m.color !== color) continue;
+      if (m.piece === 'p' && this.upgraded.has(m.from)) continue; // upgraded pawn has no standard moves
       const result = this.chess.move(m);
       const prevUpgraded = new Set(this.upgraded);
       this._transferUpgradedForStandardMove(result);
@@ -75,13 +81,7 @@ export class RulesEngine {
       if (!piece || piece.color !== color) continue;
       const targets = customMoveTargets(piece.type, sq, color, this.chess);
       for (const target of targets) {
-        const dest = this.chess.get(target);
-        const candidateFen = this._buildFenAfterCustom(sq, target, color, !!dest, false);
-        const candidateChess = new Chess(candidateFen);
-        const candidateUpgraded = new Set(this.upgraded);
-        candidateUpgraded.delete(sq);
-        candidateUpgraded.delete(target);
-        candidateUpgraded.add(target);
+        const { chess: candidateChess, upgraded: candidateUpgraded } = this._customCandidate(sq, target);
         if (!this._isInCheckOn(candidateChess, candidateUpgraded, color)) {
           actions.push({ kind: 'custom', from: sq, to: target });
         }
@@ -93,7 +93,7 @@ export class RulesEngine {
       for (let r = 0; r < 8; r++) {
         for (let f = 0; f < 8; f++) {
           const p = board[r][f];
-          if (!p || p.color !== color || p.type === 'p') continue;
+          if (!p || p.color !== color) continue;
           const sq = FILES[f] + (8 - r);
           if (this.upgraded.has(sq)) continue;
           actions.push({ kind: 'upgrade', square: sq });
@@ -189,7 +189,6 @@ export class RulesEngine {
 
     const piece = this.chess.get(square);
     if (!piece || piece.color !== color) return { ok: false, reason: 'not your piece' };
-    if (piece.type === 'p') return { ok: false, reason: 'pawns cannot be upgraded' };
     if (this.upgraded.has(square)) return { ok: false, reason: 'piece already upgraded' };
 
     this.upgraded.add(square);
@@ -221,6 +220,13 @@ export class RulesEngine {
       return { ok: false, reason: err.message || 'illegal move' };
     }
     if (!result) return { ok: false, reason: 'illegal move' };
+
+    // An upgraded pawn forfeits its standard moveset — it only has the
+    // custom diagonal step / forward capture.
+    if (result.piece === 'p' && this.upgraded.has(result.from)) {
+      this.chess.undo();
+      return { ok: false, reason: 'upgraded pawn cannot make standard pawn moves' };
+    }
 
     // chess.js's move() already prevents standard king-in-check. We must
     // additionally reject moves that leave our king attacked by an
@@ -278,21 +284,17 @@ export class RulesEngine {
     const piece = this.chess.get(move.from);
     if (!piece || piece.color !== color) return { ok: false, reason: 'not your piece' };
 
-    const validation = validateCustomPattern(piece.type, move.from, move.to);
+    const validation = validateCustomPattern(piece.type, move.from, move.to, piece.color);
     if (!validation.ok) return validation;
 
     const dest = this.chess.get(move.to);
-    if (validation.noCapture && dest) return { ok: false, reason: 'cannot capture by teleport' };
+    if (validation.noCapture && dest) return { ok: false, reason: piece.type === 'p' ? 'upgraded pawn diagonal move cannot capture' : 'cannot capture by teleport' };
+    if (validation.mustCapture && !dest) return { ok: false, reason: 'upgraded pawn forward move requires a capture' };
     if (dest && dest.color === color) return { ok: false, reason: 'cannot capture own piece' };
 
     // Build a candidate Chess + upgraded set, then run the same king-safety
     // check we use everywhere (standard attacks + upgraded attacks).
-    const candidateFen = this._buildFenAfterCustom(move.from, move.to, color, !!dest, /*flipTurn*/ false);
-    const candidateChess = new Chess(candidateFen);
-    const candidateUpgraded = new Set(this.upgraded);
-    candidateUpgraded.delete(move.from);
-    candidateUpgraded.delete(move.to); // captured piece's upgrade gone
-    candidateUpgraded.add(move.to);    // moving piece's upgrade follows
+    const { chess: candidateChess, upgraded: candidateUpgraded } = this._customCandidate(move.from, move.to);
 
     if (this._isInCheckOn(candidateChess, candidateUpgraded, color)) {
       return { ok: false, reason: 'leaves king in check' };
@@ -307,16 +309,31 @@ export class RulesEngine {
       kind: 'custom',
       ok: true,
       color,
-      san: this._customSan(piece.type, move.from, move.to, !!dest),
+      san: this._customSan(piece.type, move.from, move.to, !!dest, validation.promotion),
       from: move.from,
       to: move.to,
       captured: dest ? dest.type : undefined,
     };
   }
 
-  _customSan(type, from, to, captured) {
+  // Post-custom-move board state for king-safety checks: a fresh chess.js
+  // at the (turn-unflipped) candidate FEN plus the updated upgrade set. A
+  // promoting pawn lands as a queen, which drops its upgrade marker.
+  _customCandidate(from, to) {
+    const piece = this.chess.get(from);
+    const dest = this.chess.get(to);
+    const chess = new Chess(this._buildFenAfterCustom(from, to, piece.color, !!dest, /*flipTurn*/ false));
+    const upgraded = new Set(this.upgraded);
+    upgraded.delete(from);
+    upgraded.delete(to);
+    const promotes = piece.type === 'p' && (to[1] === '1' || to[1] === '8');
+    if (!promotes) upgraded.add(to);
+    return { chess, upgraded };
+  }
+
+  _customSan(type, from, to, captured, promotion) {
     const head = type === 'p' ? '' : type.toUpperCase();
-    return `${head}${from}${captured ? 'x' : '-'}${to}*`;
+    return `${head}${from}${captured ? 'x' : '-'}${to}${promotion ? '=Q' : ''}*`;
   }
 
   _buildFenAfterCustom(from, to, color, captured, flipTurn) {
@@ -327,7 +344,9 @@ export class RulesEngine {
     const toF = fileIdx(to);
     const moving = board[fromR][fromF];
     board[fromR][fromF] = null;
-    board[toR][toF] = moving;
+    // An upgraded pawn reaching the back rank auto-queens.
+    const promotes = moving.type === 'p' && (toR === 0 || toR === 7);
+    board[toR][toF] = promotes ? { ...moving, type: 'q' } : moving;
 
     const lines = [];
     for (let r = 0; r < 8; r++) {
@@ -363,7 +382,7 @@ export class RulesEngine {
 
     const enPassant = '-';
     let halfmove = parseInt(oldParts[4], 10);
-    halfmove = captured ? 0 : halfmove + 1;
+    halfmove = captured || moving.type === 'p' ? 0 : halfmove + 1;
     let fullmove = parseInt(oldParts[5], 10);
     if (color === 'b') fullmove += 1;
 
@@ -411,11 +430,18 @@ export class RulesEngine {
     const kingSq = this._kingSquareOn(chess, color);
     if (!kingSq) return false;
     const opp = color === 'w' ? 'b' : 'w';
-    if (chess.isAttacked(kingSq, opp)) return true;
+    // Standard attackers — but an upgraded enemy pawn has traded its
+    // diagonal capture for a forward one, so it doesn't threaten the king
+    // via the squares chess.js still thinks it attacks.
+    for (const sq of chess.attackers(kingSq, opp)) {
+      const p = chess.get(sq);
+      if (p && p.type === 'p' && upgraded.has(sq)) continue;
+      return true;
+    }
     for (const sq of upgraded) {
       const p = chess.get(sq);
       if (!p || p.color !== opp) continue;
-      if (customAttackSquares(p.type, sq).includes(kingSq)) return true;
+      if (customAttackSquares(p.type, sq, p.color).includes(kingSq)) return true;
     }
     return false;
   }
@@ -426,6 +452,7 @@ export class RulesEngine {
     // would leave it in check by an upgraded enemy piece.
     const stdMoves = this.chess.moves({ verbose: true });
     for (const m of stdMoves) {
+      if (m.piece === 'p' && this.upgraded.has(m.from)) continue; // upgraded pawn has no standard moves
       const result = this.chess.move(m);
       const prevUpgraded = new Set(this.upgraded);
       this._transferUpgradedForStandardMove(result);
@@ -441,13 +468,7 @@ export class RulesEngine {
       if (!piece || piece.color !== color) continue;
       const targets = customMoveTargets(piece.type, sq, color, this.chess);
       for (const target of targets) {
-        const dest = this.chess.get(target);
-        const candidateFen = this._buildFenAfterCustom(sq, target, color, !!dest, false);
-        const candidateChess = new Chess(candidateFen);
-        const candidateUpgraded = new Set(this.upgraded);
-        candidateUpgraded.delete(sq);
-        candidateUpgraded.delete(target);
-        candidateUpgraded.add(target);
+        const { chess: candidateChess, upgraded: candidateUpgraded } = this._customCandidate(sq, target);
         if (!this._isInCheckOn(candidateChess, candidateUpgraded, color)) return true;
       }
     }

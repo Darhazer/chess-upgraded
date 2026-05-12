@@ -56,11 +56,11 @@ describe('tryUpgrade', () => {
     assert.match(r.reason, /not full/i);
   });
 
-  it('rejects pawns', () => {
+  it('allows pawns', () => {
     const e = setup({ bar: { w: 3, b: 0 }, barMax: 3 });
     const r = e.tryUpgrade('e2');
-    assert.equal(r.ok, false);
-    assert.match(r.reason, /pawn/i);
+    assert.equal(r.ok, true);
+    assert.ok(e.upgraded.has('e2'));
   });
 
   it('rejects opponent pieces', () => {
@@ -179,6 +179,155 @@ describe('upgraded king/queen teleport', () => {
     });
     const r = e.tryMove({ from: 'd1', to: 'd3' });
     assert.equal(r.ok, true);
+  });
+});
+
+describe('upgraded pawn (replaces moveset: diagonal step, forward capture)', () => {
+  it('moves diagonally one square to an empty target', () => {
+    const e = setup({
+      fen: '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1',
+      upgraded: ['e2'],
+    });
+    const r = e.tryMove({ from: 'e2', to: 'd3' });
+    assert.equal(r.ok, true);
+    assert.ok(e.upgraded.has('d3'));
+    assert.equal(e.upgraded.has('e2'), false);
+  });
+
+  it('slides diagonally to an empty square mid-board (both diagonals)', () => {
+    for (const to of ['c5', 'e5']) {
+      const e = setup({
+        fen: '4k3/8/8/8/3P4/8/8/4K3 w - - 0 1',
+        upgraded: ['d4'],
+      });
+      const r = e.tryMove({ from: 'd4', to });
+      assert.equal(r.ok, true, `d4-${to}`);
+    }
+  });
+
+  it('captures the piece directly in front', () => {
+    const e = setup({
+      fen: '4k3/8/8/8/8/4p3/4P3/4K3 w - - 0 1',
+      upgraded: ['e2'],
+    });
+    const r = e.tryMove({ from: 'e2', to: 'e3' });
+    assert.equal(r.ok, true);
+    assert.equal(e.chess.get('e3').color, 'w');
+    assert.ok(e.upgraded.has('e3'));
+  });
+
+  it('loses the forward push (1- and 2-square)', () => {
+    const e = setup({
+      fen: '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1',
+      upgraded: ['e2'],
+    });
+    assert.equal(e.tryMove({ from: 'e2', to: 'e3' }).ok, false);
+    assert.equal(e.tryMove({ from: 'e2', to: 'e4' }).ok, false);
+  });
+
+  it('loses the diagonal capture', () => {
+    // Black piece on d3 — a normal pawn would capture e2xd3, but the
+    // upgraded pawn's diagonal is move-only.
+    const e = setup({
+      fen: '4k3/8/8/8/8/3p4/4P3/4K3 w - - 0 1',
+      upgraded: ['e2'],
+    });
+    const r = e.tryMove({ from: 'e2', to: 'd3' });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /capture/i);
+  });
+
+  it('rejects the forward step onto an empty square (capture-only)', () => {
+    const e = setup({
+      fen: '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1',
+      upgraded: ['e2'],
+    });
+    const r = e.tryMove({ from: 'e2', to: 'e3' });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /capture/i);
+  });
+
+  it('upgraded enemy pawn delivers check via its forward capture square', () => {
+    // Black pawn on e3 (upgraded). White king on e2 — pawn forward attack.
+    const e = setup({
+      fen: '4k3/8/8/8/8/4p3/4K3/8 w - - 0 1',
+      upgraded: ['e3'],
+    });
+    assert.equal(e._isInCheck('w'), true);
+  });
+
+  it('upgraded enemy pawn no longer attacks its old diagonal squares', () => {
+    // White king on d3 — a standard black pawn on e4 would check it.
+    // Upgraded, the pawn only threatens e3, so the king is safe.
+    const e = setup({
+      fen: '4k3/8/8/8/4p3/3K4/8/8 w - - 0 1',
+      upgraded: ['e4'],
+    });
+    assert.equal(e._isInCheck('w'), false);
+  });
+
+  it('an upgraded enemy pawn still blocks a friendly slider (no false check)', () => {
+    // Black rook e8, black upgraded pawn e4 in front of it, white king e1.
+    // The pawn blocks the rook, so e1 is not attacked — and the upgraded
+    // pawn isn't removed from the board for the check test.
+    const e = setup({
+      fen: '4r2k/8/8/8/4p3/8/8/4K3 w - - 0 1',
+      upgraded: ['e4'],
+    });
+    assert.equal(e._isInCheck('w'), false);
+    // Remove the pawn and the rook now checks — sanity that the position
+    // is otherwise wired correctly.
+    const e2 = setup({ fen: '4r2k/8/8/8/8/8/8/4K3 w - - 0 1' });
+    assert.equal(e2._isInCheck('w'), true);
+  });
+
+  it('promotes to a queen via the diagonal step, dropping the upgrade marker', () => {
+    // White pawn on a7 (upgraded), b8 empty.
+    const e = setup({
+      fen: '4k3/P7/8/8/8/8/8/4K3 w - - 0 1',
+      upgraded: ['a7'],
+    });
+    const r = e.tryMove({ from: 'a7', to: 'b8', promotion: 'q' });
+    assert.equal(r.ok, true);
+    assert.deepEqual(e.chess.get('b8'), { type: 'q', color: 'w' });
+    assert.equal(e.upgraded.has('b8'), false, 'promoted queen is not upgraded');
+    assert.equal(e.upgraded.has('a7'), false);
+    assert.match(e.history.at(-1).san, /=Q/);
+  });
+
+  it('promotes via the forward capture, dropping the upgrade marker', () => {
+    // White pawn on e7 (upgraded), black rook on e8.
+    const e = setup({
+      fen: '4r1k1/4P3/8/8/8/8/8/4K3 w - - 0 1',
+      upgraded: ['e7'],
+    });
+    const r = e.tryMove({ from: 'e7', to: 'e8', promotion: 'q' });
+    assert.equal(r.ok, true);
+    assert.deepEqual(e.chess.get('e8'), { type: 'q', color: 'w' });
+    assert.equal(e.upgraded.has('e8'), false);
+  });
+
+  it('still refuses a diagonal capture onto the back rank (no diagonal capture, even to promote)', () => {
+    // White pawn e7 (upgraded), black rook on f8 — would be axf8=Q for a
+    // normal pawn, but the upgraded pawn cannot capture on the diagonal.
+    const e = setup({
+      fen: '5rk1/4P3/8/8/8/8/8/4K3 w - - 0 1',
+      upgraded: ['e7'],
+    });
+    const r = e.tryMove({ from: 'e7', to: 'f8', promotion: 'q' });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /capture/i);
+  });
+
+  it('a black upgraded pawn promotes on the first rank too', () => {
+    const e = setup({
+      fen: '4k3/8/8/8/8/8/1p6/4K3 b - - 0 1',
+      upgraded: ['b2'],
+    });
+    const r = e.tryMove({ from: 'b2', to: 'a1', promotion: 'q' });
+    assert.equal(r.ok, true);
+    assert.deepEqual(e.chess.get('a1'), { type: 'q', color: 'b' });
+    assert.equal(e.upgraded.has('a1'), false);
   });
 });
 

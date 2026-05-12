@@ -30,14 +30,19 @@ describe('upgradePickableLayer', () => {
     assert.match(out.a1.background, /106, 169, 255/);
   });
 
-  it('ignores opponent pieces and pawns', () => {
+  it('ignores opponent pieces and skips already-upgraded squares', () => {
     const c = new Chess(); // start position
-    const out = upgradePickableLayer(c, 'w', new Set());
-    // Pawns on rank 2 must NOT be in the output.
-    for (const f of 'abcdefgh') assert.equal(out[`${f}2`], undefined);
+    const out = upgradePickableLayer(c, 'w', new Set(['a2']));
     // Black pieces must NOT be highlighted.
     assert.equal(out.e8, undefined);
-    // White non-pawn back rank should be there.
+    for (const f of 'abcdefgh') assert.equal(out[`${f}7`], undefined);
+    // a2 is already upgraded → excluded.
+    assert.equal(out.a2, undefined);
+    // Other white pawns ARE pickable now that pawns are upgradeable.
+    for (const sq of ['b2', 'c2', 'd2', 'e2', 'f2', 'g2', 'h2']) {
+      assert.ok(out[sq], `${sq} should be pickable`);
+    }
+    // White non-pawn back rank should be there too.
     for (const sq of ['a1', 'b1', 'c1', 'd1', 'e1', 'f1', 'g1', 'h1']) {
       assert.ok(out[sq], `${sq} should be pickable`);
     }
