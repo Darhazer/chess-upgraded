@@ -24,6 +24,12 @@ const SWEEP_INTERVAL_MS = 15_000;
 // it.
 const LOBBY_RATE_CAPACITY = parseInt(process.env.LOBBY_RATE_CAPACITY, 10) || 10;
 const LOBBY_RATE_REFILL_MS = parseInt(process.env.LOBBY_RATE_REFILL_MS, 10) || 3_000;
+// The engine usually replies in a few ms — too instant to read as "the
+// opponent moved". Hold each bot reply until at least this long has passed so
+// it feels like it's thinking. Override with BOT_MIN_THINK_MS (0 disables it).
+const BOT_MIN_THINK_MS = Number.isInteger(parseInt(process.env.BOT_MIN_THINK_MS, 10))
+  ? parseInt(process.env.BOT_MIN_THINK_MS, 10)
+  : 400;
 
 const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN }));
@@ -69,13 +75,39 @@ function applyTerminal(room) {
 function runBotIfNeeded(room) {
   if (room.mode !== 'bot' || room.status !== 'playing') return;
   if (room.engine.turn() !== BOT_COLOR) return;
-  setImmediate(() => {
-    if (room.status !== 'playing') return;
-    if (room.engine.turn() !== BOT_COLOR) return;
-    const action = chooseAction(room.engine);
-    if (action) room.engine.applyAction(action);
-    applyTerminal(room);
-    emitRoomState(room);
+  setImmediate(async () => {
+    if (room.status !== 'playing' || room.engine.turn() !== BOT_COLOR) return;
+    const startedAt = Date.now();
+    let action = null;
+    try {
+      // Search runs in a worker (see engine/search-pool.js) — the await
+      // yields the loop, so other rooms keep moving while the bot thinks.
+      action = await chooseAction(room.engine);
+    } catch (err) {
+      console.error('[bot] failed to choose a move:', err?.message);
+      return;
+    }
+    // The game could have ended (resign/disconnect) while we were thinking.
+    if (room.status !== 'playing' || room.engine.turn() !== BOT_COLOR) return;
+    const pause = Math.max(0, BOT_MIN_THINK_MS - (Date.now() - startedAt));
+    const commit = () => {
+      // ...and could still end during the artificial think-pause below.
+      if (room.status !== 'playing' || room.engine.turn() !== BOT_COLOR) return;
+      // The action was dry-run validated in chooseAction, but applyAction is
+      // the last unguarded thing on the bot path — a referee divergence here
+      // must not become an uncaughtException that takes the whole process
+      // (and every other room) down. Drop the move; the room just stalls.
+      try {
+        if (action) room.engine.applyAction(action);
+        applyTerminal(room);
+      } catch (err) {
+        console.error('[bot] applying chosen move threw:', err);
+        return;
+      }
+      emitRoomState(room);
+    };
+    if (pause === 0) commit();
+    else setTimeout(commit, pause).unref();
   });
 }
 
@@ -98,6 +130,9 @@ function dropPlayer(room, player) {
   if (idx !== -1) room.players.splice(idx, 1);
 
   if (room.mode === 'bot') {
+    // Mark it over before unregistering so an in-flight bot search that
+    // resolves after this sees a non-'playing' room and bails.
+    room.status = 'over';
     store.delete(room.code);
     return;
   }

@@ -53,10 +53,11 @@ Open http://localhost:5173. Set `UPGRADE_BAR_MAX=10` (etc.) on the server to cha
 ## Game flow
 
 - **Play public** — joins an open public room or creates one; first player is white.
+- **Play vs computer** — creates a room against the built-in bot (you play white). The bot is a fork of [js-chess-engine](https://github.com/josefjadrny/js-chess-engine) (`server/src/engine/`) taught the variant — it searches upgrade picks, bonus moves and teleports as first-class moves, not just standard chess. Strength tracks the engine's level (0–4); default 2, override with `BOT_LEVEL` on the server. The search runs in a `worker_threads` pool (`server/src/engine/search-pool.js`) so it never blocks the game loop — `BOT_WORKERS` sets the pool size (default: CPU count − 1; `0` runs the search in-process), `BOT_SEARCH_TIMEOUT_MS` caps a single search before the worker is recycled.
 - **Create private room** — server returns a 6-character code. Share the invite link (`?room=CODE`) or paste the code in another browser.
 - **Join** — paste the code to join an existing private room.
 
-Server is authoritative for moves; the client mirrors state via chess.js for snappier UI.
+Server is authoritative for moves; the client mirrors state via chess.js for snappier UI. `RulesEngine` is the referee; the bot's choices are always re-validated against it before being applied.
 
 ## Extending rules
 
@@ -65,5 +66,6 @@ Server is authoritative for moves; the client mirrors state via chess.js for sna
 ## Credits
 
 - [**chess.js**](https://github.com/jhlywa/chess.js) — move generation and validation for standard chess.
+- [**js-chess-engine**](https://github.com/josefjadrny/js-chess-engine) by Josef Jádrný — the computer opponent's search/evaluation, vendored under `server/src/engine/vendor/` (MIT — see the `LICENSE` there) and forked to understand the upgrade variant.
 - [**react-chessboard**](https://github.com/Clariity/react-chessboard) — interactive board component for the React client.
 - **Chess piece artwork** — Cburnett's standard SVG set, public-domain via [Wikimedia Commons](https://commons.wikimedia.org/wiki/Category:SVG_chess_pieces). The same set is bundled with react-chessboard; we re-extract it as inline SVG to enable per-piece styling for upgrades.
