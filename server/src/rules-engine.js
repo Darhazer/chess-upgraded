@@ -13,21 +13,32 @@ import {
 // Each side has an upgrade bar that fills 1 unit per move (capped at
 // barMax). When full, the player can spend a turn to mark one of their
 // pieces as upgraded. Most upgraded pieces *gain* extra moves on top of
-// their normal ones (see shared/upgrade-rules.js). A pawn is the
-// exception: upgrading it *replaces* its moveset — it no longer pushes
-// forward or captures on the diagonal; instead it steps one square
-// diagonally (no capture) and captures the piece directly ahead. The
-// upgrade follows the piece across moves and is lost when it's captured.
+// their normal ones (see shared/upgrade-rules.js) — but those bonus
+// moves are move-only: a rook's diagonal step, a bishop's orthogonal
+// step, a knight's 2,2 jump and a king/queen teleport all require an
+// empty destination and can never capture. A pawn is the exception:
+// upgrading it *replaces* its moveset — it no longer pushes forward or
+// captures on the diagonal; instead it steps one square diagonally (no
+// capture) and captures the piece directly ahead. The upgrade follows
+// the piece across moves and is lost when it's captured.
 //
 // chess.js drives standard moves and provides square-attack queries.
 // Custom moves bypass chess.move() and instead build the post-move FEN
 // by hand. King-safety considers BOTH standard attacks (via chess.js,
 // minus the diagonal attack an upgraded enemy pawn no longer has) AND
-// attacks via upgraded enemy pieces — so an upgraded rook can
-// deliver/escape check via its diagonal step, an upgraded pawn via its
-// forward capture, etc.
+// attacks via upgraded enemy pieces — which, since the non-pawn bonus
+// patterns can't capture, means only an upgraded enemy pawn's forward
+// capture. (A rook/bishop/knight can still relocate via its bonus move
+// to a square from which its *normal* lines give check; that's just an
+// ordinary chess.js attack from the new square.)
 
 export const DEFAULT_BAR_MAX = 3;
+
+function noCaptureReason(type) {
+  if (type === 'p') return 'upgraded pawn diagonal move cannot capture';
+  if (type === 'k' || type === 'q') return 'cannot capture by teleport';
+  return 'upgraded bonus move cannot capture';
+}
 
 export class RulesEngine {
   constructor({ barMax = DEFAULT_BAR_MAX } = {}) {
@@ -288,7 +299,7 @@ export class RulesEngine {
     if (!validation.ok) return validation;
 
     const dest = this.chess.get(move.to);
-    if (validation.noCapture && dest) return { ok: false, reason: piece.type === 'p' ? 'upgraded pawn diagonal move cannot capture' : 'cannot capture by teleport' };
+    if (validation.noCapture && dest) return { ok: false, reason: noCaptureReason(piece.type) };
     if (validation.mustCapture && !dest) return { ok: false, reason: 'upgraded pawn forward move requires a capture' };
     if (dest && dest.color === color) return { ok: false, reason: 'cannot capture own piece' };
 

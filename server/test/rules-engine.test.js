@@ -110,6 +110,16 @@ describe('upgraded rook (+1 diagonal step)', () => {
     const r = e.tryMove({ from: 'a1', to: 'c3' });
     assert.equal(r.ok, false);
   });
+
+  it('cannot capture with the diagonal step (move-only)', () => {
+    const e = setup({
+      fen: '4k3/8/8/8/8/8/1p6/R3K3 w - - 0 1',
+      upgraded: ['a1'],
+    });
+    const r = e.tryMove({ from: 'a1', to: 'b2' });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /capture/i);
+  });
 });
 
 describe('upgraded bishop (+1 orthogonal step)', () => {
@@ -121,6 +131,16 @@ describe('upgraded bishop (+1 orthogonal step)', () => {
     const r = e.tryMove({ from: 'c1', to: 'c2' });
     assert.equal(r.ok, true);
   });
+
+  it('cannot capture with the orthogonal step (move-only)', () => {
+    const e = setup({
+      fen: '4k3/8/8/8/8/8/2p5/2B1K3 w - - 0 1',
+      upgraded: ['c1'],
+    });
+    const r = e.tryMove({ from: 'c1', to: 'c2' });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /capture/i);
+  });
 });
 
 describe('upgraded knight (+2,2 jump)', () => {
@@ -131,6 +151,16 @@ describe('upgraded knight (+2,2 jump)', () => {
     });
     const r = e.tryMove({ from: 'h1', to: 'f3' });
     assert.equal(r.ok, true);
+  });
+
+  it('cannot capture with the 2,2 jump (move-only)', () => {
+    const e = setup({
+      fen: '4k3/8/8/8/8/5p2/8/4K2N w - - 0 1',
+      upgraded: ['h1'],
+    });
+    const r = e.tryMove({ from: 'h1', to: 'f3' });
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /capture/i);
   });
 
   it('still allows the standard L-jump (no need to be upgraded)', () => {
@@ -368,33 +398,31 @@ describe('upgrade marker tracking', () => {
 });
 
 describe('check detection includes upgraded attacks', () => {
-  it('upgraded rook delivers check via diagonal step', () => {
+  it("an upgraded rook's diagonal step does NOT count as an attack (move-only)", () => {
     // White rook on c2, black king on b3. Standard rook can't reach b3
-    // (different file/rank), but the upgraded diagonal step can.
+    // (different file/rank), and the upgraded diagonal step can't capture,
+    // so the king is not in check.
     const e = setup({
       fen: '8/8/8/8/8/1k6/2R5/4K3 b - - 0 1',
       upgraded: ['c2'],
     });
-    assert.equal(e._isInCheck('b'), true);
+    assert.equal(e._isInCheck('b'), false);
   });
 
-  it('upgraded knight delivers check via 2,2 jump', () => {
-    // White knight on c2 (upgraded) reaches a4 via 2,2 jump.
+  it("an upgraded knight's 2,2 jump does NOT count as an attack (move-only)", () => {
     const e = setup({
       fen: '8/8/8/8/k7/8/2N5/4K3 b - - 0 1',
       upgraded: ['c2'],
     });
-    assert.equal(e._isInCheck('b'), true);
+    assert.equal(e._isInCheck('b'), false);
   });
 
-  it('upgraded bishop delivers check via orthogonal step', () => {
-    // White bishop on b1 (upgraded) reaches b2 (black king) via the
-    // one-step orthogonal upgrade.
+  it("an upgraded bishop's orthogonal step does NOT count as an attack (move-only)", () => {
     const e = setup({
       fen: '8/8/8/8/8/8/1k6/1B2K3 b - - 0 1',
       upgraded: ['b1'],
     });
-    assert.equal(e._isInCheck('b'), true);
+    assert.equal(e._isInCheck('b'), false);
   });
 
   it('king/queen teleport does NOT count as an attack (no capture)', () => {
@@ -409,25 +437,14 @@ describe('check detection includes upgraded attacks', () => {
     assert.equal(e._isInCheck('b'), false);
   });
 
-  it('rejects a standard move that would expose the king to upgraded attack', () => {
-    // White: king e1, knight on d3 blocks black upgraded rook on a3 from
-    // stepping diagonally to e1 only via b2->c1->... actually let's set
-    // up a clearer position. White king on e1; black upgraded rook on
-    // d2. Standard chess: rook attacks d-file/2-rank. Diagonal step
-    // from d2 reaches e1, c1, e3, c3. So white king on e1 is currently
-    // attacked by upgraded-rook diagonal step. The position is illegal
-    // for white-to-move; instead, place white pawn on e2 — that's fine.
-    //
-    // Better: white knight on c1 protects... let's just verify directly:
-    // black rook on d3 (upgraded). White king on e1. d3 -> e2 (diag) is
-    // attack on e2; if white king is on e2 it's in check. If white moves
-    // king from e1 to e2, that should be rejected.
+  it('rejects a standard move that would expose the king to an upgraded enemy pawn', () => {
+    // Black upgraded pawn on e3 captures straight ahead onto e2. The white
+    // king on e1 may not step to e2 — standard chess.js sees e2 as safe
+    // (the pawn's standard diagonals are d2/f2), but the upgrade covers it.
     const e = setup({
-      fen: '4k3/8/8/8/8/3r4/8/4K3 w - - 0 1',
-      upgraded: ['d3'],
+      fen: '4k3/8/8/8/8/4p3/8/4K3 w - - 0 1',
+      upgraded: ['e3'],
     });
-    // King e1 -> e2: standard rook on d3 doesn't attack e2 (different
-    // file/rank). Upgraded rook diagonal step d3 -> e2 attacks e2.
     const r = e.tryMove({ from: 'e1', to: 'e2' });
     assert.equal(r.ok, false);
     assert.match(r.reason, /check/i);

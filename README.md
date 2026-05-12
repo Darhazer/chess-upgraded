@@ -12,11 +12,11 @@ Standard chess rules apply (chess.js handles validation). On top of that, each p
 - **Configurable threshold** — defaults to 3 moves to fill. Override with `UPGRADE_BAR_MAX=10` (or any value) on the server.
 - **Restrictions** — an already-upgraded piece cannot be re-upgraded; you cannot upgrade while in check (must address check first). The upgrade follows the piece across moves and is lost when the piece is captured.
 
-Most upgraded pieces gain extra moves *on top of* their normal ones:
+Most upgraded pieces gain extra moves *on top of* their normal ones. Every one of these bonus moves is **move-only** — the destination square must be empty, they can never capture:
 
-- **Rook** — also moves 1 square diagonally (one-step only).
-- **Bishop** — also moves 1 square orthogonally (one-step only).
-- **Knight** — also makes a 2,2 jump in addition to its normal L-shape (4 new target squares).
+- **Rook** — also moves 1 square diagonally (one-step only, no capture).
+- **Bishop** — also moves 1 square orthogonally (one-step only, no capture).
+- **Knight** — also makes a 2,2 jump in addition to its normal L-shape (4 new target squares, no capture).
 - **King** and **Queen** — gain a **teleport**: exactly 2 squares in any of the 8 directions, may pass over a single intermediate piece, **target square must be empty** (no capture by teleport).
 
 The **pawn** is the exception — upgrading it *replaces* its moveset rather than extending it:

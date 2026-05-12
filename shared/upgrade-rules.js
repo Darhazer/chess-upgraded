@@ -55,45 +55,32 @@ export function customMoveTargets(type, from, color, chess) {
     return targets;
   }
 
-  const teleport = type === 'k' || type === 'q';
+  // Every non-pawn bonus pattern (rook/bishop/knight one-step, king/queen
+  // teleport) is move-only: the destination square must be empty. None of
+  // them can capture.
   const targets = [];
   for (const [df, dr] of deltasFor(type)) {
     const tf = f + df;
     const tr = r + dr;
     if (tf < 0 || tf > 7 || tr < 0 || tr > 7) continue;
     const target = sqOf(tf, tr);
-    const dest = chess.get(target);
-    if (teleport) {
-      if (dest) continue;
-    } else if (dest && dest.color === color) {
-      continue;
-    }
+    if (chess.get(target)) continue;
     targets.push(target);
   }
   return targets;
 }
 
-// Squares an upgraded piece ATTACKS via its bonus pattern. King/queen
-// teleports cannot capture, so they contribute no attacks here — their
-// normal attack patterns are covered by chess.js. Pawns are color-aware:
-// an upgraded pawn captures the square directly in front of it.
+// Squares an upgraded piece ATTACKS via its bonus pattern. Only the pawn
+// contributes here: rook/bishop/knight bonus moves are move-only (no
+// capture), and king/queen teleports likewise can't capture — their
+// normal attack patterns are already covered by chess.js. An upgraded
+// pawn captures the square directly in front of it (color-aware).
 export function customAttackSquares(type, from, color) {
-  const f = fileIdx(from);
+  if (type !== 'p') return [];
   const r = rankIdx(from);
-  if (type === 'p') {
-    const tr = r + pawnDir(color);
-    if (tr < 0 || tr > 7) return [];
-    return [sqOf(f, tr)];
-  }
-  if (type !== 'r' && type !== 'b' && type !== 'n') return [];
-  const out = [];
-  for (const [df, dr] of deltasFor(type)) {
-    const tf = f + df;
-    const tr = r + dr;
-    if (tf < 0 || tf > 7 || tr < 0 || tr > 7) continue;
-    out.push(sqOf(tf, tr));
-  }
-  return out;
+  const tr = r + pawnDir(color);
+  if (tr < 0 || tr > 7) return [];
+  return [sqOf(fileIdx(from), tr)];
 }
 
 // Does (from, to) match the upgraded `type`'s bonus pattern?
@@ -117,15 +104,15 @@ export function validateCustomPattern(type, from, to, color) {
     return { ok: false, reason: 'illegal upgraded pawn move' };
   }
   if (type === 'r') {
-    if (adf === 1 && adr === 1) return { ok: true };
+    if (adf === 1 && adr === 1) return { ok: true, noCapture: true };
     return { ok: false, reason: 'illegal upgraded rook move' };
   }
   if (type === 'b') {
-    if ((adf === 1 && adr === 0) || (adf === 0 && adr === 1)) return { ok: true };
+    if ((adf === 1 && adr === 0) || (adf === 0 && adr === 1)) return { ok: true, noCapture: true };
     return { ok: false, reason: 'illegal upgraded bishop move' };
   }
   if (type === 'n') {
-    if (adf === 2 && adr === 2) return { ok: true };
+    if (adf === 2 && adr === 2) return { ok: true, noCapture: true };
     return { ok: false, reason: 'illegal upgraded knight move' };
   }
   if (type === 'k' || type === 'q') {

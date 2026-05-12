@@ -50,10 +50,11 @@ describe('customMoveTargets', () => {
     assert.ok(t.includes('c5'));
   });
 
-  it('keeps targets occupied by enemy pieces (capture allowed)', () => {
+  it('drops targets occupied by enemy pieces — bonus moves never capture', () => {
     const board = fakeBoard({ e5: { color: 'b', type: 'p' } });
     const t = customMoveTargets('r', 'd4', 'w', board);
-    assert.ok(t.includes('e5'));
+    assert.ok(!t.includes('e5'));
+    assert.ok(t.includes('c5'));
   });
 
   it('teleport (king/queen) drops ANY occupied square — no capture', () => {
@@ -123,11 +124,9 @@ describe('customMoveTargets', () => {
 });
 
 describe('customAttackSquares', () => {
-  it('matches customMoveTargets for r/b/n on an empty board', () => {
+  it('returns [] for r/b/n — their bonus moves are move-only (no capture)', () => {
     for (const type of ['r', 'b', 'n']) {
-      const moves = customMoveTargets(type, 'd4', 'w', fakeBoard());
-      const attacks = customAttackSquares(type, 'd4');
-      assert.deepEqual(new Set(attacks), new Set(moves));
+      assert.deepEqual(customAttackSquares(type, 'd4', 'w'), []);
     }
   });
 
@@ -136,31 +135,38 @@ describe('customAttackSquares', () => {
     assert.deepEqual(customAttackSquares('q', 'd4'), []);
   });
 
-  it('respects board edges', () => {
-    assert.deepEqual(customAttackSquares('n', 'a1'), ['c3']);
-  });
-
   it('pawn attacks the square directly in front, color-aware', () => {
     assert.deepEqual(customAttackSquares('p', 'd4', 'w'), ['d5']);
     assert.deepEqual(customAttackSquares('p', 'd4', 'b'), ['d3']);
   });
+
+  it('pawn attack square drops off the board at the back rank', () => {
+    assert.deepEqual(customAttackSquares('p', 'd8', 'w'), []);
+    assert.deepEqual(customAttackSquares('p', 'd1', 'b'), []);
+  });
 });
 
 describe('validateCustomPattern', () => {
-  it('rook: accepts 1-step diagonal, rejects everything else', () => {
-    assert.equal(validateCustomPattern('r', 'a1', 'b2').ok, true);
+  it('rook: accepts 1-step diagonal (move-only), rejects everything else', () => {
+    const ok = validateCustomPattern('r', 'a1', 'b2');
+    assert.equal(ok.ok, true);
+    assert.equal(ok.noCapture, true);
     assert.equal(validateCustomPattern('r', 'a1', 'c3').ok, false);
     assert.equal(validateCustomPattern('r', 'a1', 'a2').ok, false);
   });
 
-  it('bishop: accepts 1-step orthogonal, rejects everything else', () => {
-    assert.equal(validateCustomPattern('b', 'd4', 'd5').ok, true);
-    assert.equal(validateCustomPattern('b', 'd4', 'e4').ok, true);
+  it('bishop: accepts 1-step orthogonal (move-only), rejects everything else', () => {
+    const ok = validateCustomPattern('b', 'd4', 'd5');
+    assert.equal(ok.ok, true);
+    assert.equal(ok.noCapture, true);
+    assert.equal(validateCustomPattern('b', 'd4', 'e4').noCapture, true);
     assert.equal(validateCustomPattern('b', 'd4', 'e5').ok, false);
   });
 
-  it('knight: accepts (2,2), rejects standard L', () => {
-    assert.equal(validateCustomPattern('n', 'd4', 'f6').ok, true);
+  it('knight: accepts (2,2) move-only, rejects standard L', () => {
+    const ok = validateCustomPattern('n', 'd4', 'f6');
+    assert.equal(ok.ok, true);
+    assert.equal(ok.noCapture, true);
     assert.equal(validateCustomPattern('n', 'd4', 'e6').ok, false);
   });
 

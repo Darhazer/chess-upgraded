@@ -17,6 +17,16 @@ describe('legalTargets', () => {
     assert.ok(t.has('b2'), 'upgraded diagonal step added');
   });
 
+  it('does not offer a capture via an upgraded non-pawn bonus pattern', () => {
+    // Black pawn on b2 sits on the rook's bonus diagonal step, but bonus
+    // moves are move-only — b2 isn't a legal target. Normal rook moves
+    // are unaffected.
+    const c = new Chess('4k3/8/8/8/8/8/1p6/R3K3 w - - 0 1');
+    const t = legalTargets(c, 'a1', new Set(['a1']));
+    assert.ok(!t.has('b2'), 'cannot capture via bonus diagonal step');
+    assert.ok(t.has('a7'), 'standard rook move kept');
+  });
+
   it('REPLACES the moveset for an upgraded pawn — diagonal step, forward capture', () => {
     // White pawn d4 (upgraded): black pawns on c5 (diagonal — NOT
     // capturable) and d5 (forward — capturable); e5 empty (diagonal move).
