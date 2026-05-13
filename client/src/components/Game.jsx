@@ -10,7 +10,6 @@ import {
   mergeSquareStyles,
   selectedSquareLayer,
   upgradedGlowLayer,
-  upgradePickableLayer,
 } from '../features/game/square-styles.js';
 import { useLatest } from '../hooks/useLatest.js';
 import Sidebar from './Sidebar.jsx';
@@ -43,17 +42,9 @@ export default function Game({ room, state, onLeave }) {
   const { socket } = useSocket();
   const g = useGameState(room, state);
   const [moveError, setMoveError] = useState('');
-  const [upgradeMode, setUpgradeMode] = useState(false);
   // Tap-selection lives here (not inside useTapMove) so the drag handler
   // can clear it without reaching into another hook's API.
   const [selected, setSelected] = useState(null);
-
-  // Upgrade mode is implicitly cancelled when it stops being our turn —
-  // derive that rather than syncing via an effect. The hooks below
-  // *also* gate on myTurn internally; the redundancy is intentional so
-  // each hook stays self-consistent if used with different upstream
-  // gating.
-  const effectiveUpgradeMode = upgradeMode && g.myTurn;
 
   const submitMove = useCallback(
     (from, to) => {
@@ -72,7 +63,6 @@ export default function Game({ room, state, onLeave }) {
 
   const drag = useDragHints({
     myTurn: g.myTurn,
-    upgradeMode: effectiveUpgradeMode,
     color: room.color,
     local: g.local,
     upgradedSet: g.upgradedSet,
@@ -80,7 +70,6 @@ export default function Game({ room, state, onLeave }) {
 
   const tap = useTapMove({
     myTurn: g.myTurn,
-    upgradeMode: effectiveUpgradeMode,
     color: room.color,
     local: g.local,
     upgradedSet: g.upgradedSet,
@@ -103,59 +92,39 @@ export default function Game({ room, state, onLeave }) {
 
   const onPieceDrop = useCallback(
     (from, to) => {
-      if (!g.myTurn || effectiveUpgradeMode) return false;
+      if (!g.myTurn) return false;
       setSelected(null);
       submitMove(from, to);
       return true;
     },
-    [g.myTurn, effectiveUpgradeMode, submitMove]
+    [g.myTurn, submitMove]
   );
 
   // Same react-chessboard stale-closure caveat as useDragHints.
-  const draggableRef = useLatest({ myTurn: g.myTurn, upgradeMode: effectiveUpgradeMode, color: room.color });
+  const draggableRef = useLatest({ myTurn: g.myTurn, color: room.color });
   const isDraggablePiece = useCallback(({ piece }) => {
-    const { myTurn, upgradeMode, color } = draggableRef.current;
-    return myTurn && !upgradeMode && !!piece && piece[0].toLowerCase() === color;
+    const { myTurn, color } = draggableRef.current;
+    return myTurn && !!piece && piece[0].toLowerCase() === color;
   }, [draggableRef]);
 
-  const onUpgradeClick = useCallback(
-    (square) => {
-      const piece = g.local.get(square);
-      if (!piece || piece.color !== room.color) return;
-      if (g.upgradedSet.has(square)) return;
-      setMoveError('');
-      gameApi.upgrade(socket, room.code, square).then((res) => {
-        if (res.ok) setUpgradeMode(false);
-        else setMoveError(res.error || 'upgrade failed');
-      });
-    },
-    [g.local, g.upgradedSet, room.color, socket, room.code]
-  );
-
   const onSquareClick = useCallback(
-    (square) => {
-      if (effectiveUpgradeMode) return onUpgradeClick(square);
-      tap.onSquareClick(square);
-    },
-    [effectiveUpgradeMode, onUpgradeClick, tap]
+    (square) => tap.onSquareClick(square),
+    [tap]
   );
 
   const customSquareStyles = useMemo(
     () => mergeSquareStyles(
       upgradedGlowLayer(g.upgradedSet),
-      effectiveUpgradeMode && upgradePickableLayer(g.local, room.color, g.upgradedSet),
-      !effectiveUpgradeMode && selectedSquareLayer(visibleSelected),
-      !effectiveUpgradeMode && visibleTargets && dragHintLayer(visibleTargets),
+      selectedSquareLayer(visibleSelected),
+      visibleTargets && dragHintLayer(visibleTargets),
       visibleDragHints && dragHintLayer(visibleDragHints),
     ),
-    [g.upgradedSet, effectiveUpgradeMode, g.local, room.color, visibleDragHints, visibleSelected, visibleTargets]
+    [g.upgradedSet, visibleDragHints, visibleSelected, visibleTargets]
   );
 
   const customPieces = useCustomPieces(g.upgradedSet);
   const boardWidth = useBoardWidth();
 
-  const startUpgrade = useCallback(() => setUpgradeMode(true), []);
-  const cancelUpgrade = useCallback(() => setUpgradeMode(false), []);
   const resign = useCallback(() => gameApi.resign(socket, room.code), [socket, room.code]);
 
   return (
@@ -167,14 +136,6 @@ export default function Game({ room, state, onLeave }) {
         me={g.me}
         opponent={g.opponent}
         myTurn={g.myTurn}
-        myBar={g.myBar}
-        oppBar={g.oppBar}
-        barMax={g.barMax}
-        opponentColor={g.opponentColor}
-        upgradeMode={effectiveUpgradeMode}
-        canUpgrade={g.canUpgrade}
-        onStartUpgrade={startUpgrade}
-        onCancelUpgrade={cancelUpgrade}
         onResign={resign}
         onLeave={onLeave}
         moveError={moveError}
@@ -184,7 +145,6 @@ export default function Game({ room, state, onLeave }) {
         fen={g.fen}
         orientation={g.orientation}
         myTurn={g.myTurn}
-        upgradeMode={effectiveUpgradeMode}
         onPieceDrop={onPieceDrop}
         onPieceDragBegin={onDragBegin}
         onPieceDragEnd={drag.onDragEnd}

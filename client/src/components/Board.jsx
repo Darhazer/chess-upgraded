@@ -1,13 +1,12 @@
 import { Chessboard } from 'react-chessboard';
 
 // Pure presentation around react-chessboard. All policy (whose turn,
-// upgrade-mode gating, hint computation) is decided by the parent and
-// passed in as ready-to-use props/callbacks.
+// hint computation) is decided by the parent and passed in as
+// ready-to-use props/callbacks.
 export default function Board({
   fen,
   orientation,
   myTurn,
-  upgradeMode,
   onPieceDrop,
   onPieceDragBegin,
   onPieceDragEnd,
@@ -22,7 +21,7 @@ export default function Board({
       <Chessboard
         position={fen === 'start' ? undefined : fen}
         boardOrientation={orientation}
-        arePiecesDraggable={myTurn && !upgradeMode}
+        arePiecesDraggable={myTurn}
         onPieceDrop={onPieceDrop}
         onPieceDragBegin={onPieceDragBegin}
         onPieceDragEnd={onPieceDragEnd}

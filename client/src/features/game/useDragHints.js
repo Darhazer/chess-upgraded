@@ -14,13 +14,13 @@ import { legalTargets } from './move-targets.js';
 // 2. Updating React state synchronously inside the drag-init path makes
 //    react-dnd unhappy (re-renders the in-flight drag). We defer the
 //    set/clear with setTimeout(0) to dodge that.
-export function useDragHints({ myTurn, upgradeMode, color, local, upgradedSet }) {
+export function useDragHints({ myTurn, color, local, upgradedSet }) {
   const [hints, setHints] = useState(null);
-  const stateRef = useLatest({ myTurn, upgradeMode, color, local, upgradedSet });
+  const stateRef = useLatest({ myTurn, color, local, upgradedSet });
 
   const onDragBegin = useCallback((_piece, sourceSquare) => {
     const s = stateRef.current;
-    if (!s.myTurn || s.upgradeMode) return;
+    if (!s.myTurn) return;
     const piece = s.local.get(sourceSquare);
     if (!piece || piece.color !== s.color) return;
     const targets = legalTargets(s.local, sourceSquare, s.upgradedSet);

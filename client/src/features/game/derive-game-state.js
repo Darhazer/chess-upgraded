@@ -5,9 +5,6 @@
 export function deriveGameState(room, state) {
   const opponentColor = room.color === 'w' ? 'b' : 'w';
   const upgraded = state?.upgraded || [];
-  const barMax = state?.barMax ?? 3;
-  const myBar = state?.bar?.[room.color] ?? 0;
-  const oppBar = state?.bar?.[opponentColor] ?? 0;
   const myTurn = state?.status === 'playing' && state?.turn === room.color;
   return {
     orientation: room.color === 'b' ? 'black' : 'white',
@@ -15,10 +12,6 @@ export function deriveGameState(room, state) {
     myTurn,
     opponentColor,
     upgradedSet: new Set(upgraded),
-    barMax,
-    myBar,
-    oppBar,
-    canUpgrade: myTurn && myBar >= barMax,
     me: state?.players?.find((p) => p.color === room.color),
     opponent: state?.players?.find((p) => p.color !== room.color),
     status: state?.status,

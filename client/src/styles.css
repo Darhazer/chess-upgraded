@@ -120,51 +120,11 @@ button.primary:hover { background: var(--accent); }
 .actions { display: flex; gap: 8px; }
 .actions button { flex: 1; }
 
-/* Upgrade bars */
-.bars { display: flex; flex-direction: column; gap: 8px; }
-.bar { display: flex; flex-direction: column; gap: 4px; }
-.bar-label {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  color: var(--muted);
-}
-.bar-track {
-  height: 8px;
-  background: #1f1f22;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  overflow: hidden;
-}
-.bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent-2), var(--accent));
-  transition: width 0.25s ease;
-}
-.bar.full .bar-fill {
-  background: linear-gradient(90deg, #ffb347, #ffd866);
-  box-shadow: 0 0 8px rgba(255, 200, 60, 0.6);
-}
-.bar.mine .bar-label { color: var(--text); }
-
-.upgrade-prompt {
-  background: #1f1f22;
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 200, 60, 0.5);
-  font-size: 13px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.upgrade-prompt p { margin: 0; }
-
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.history li.upgrade-entry { color: #ffd866; }
 .history li.custom-entry { color: var(--accent); }
 
 .history h4 { margin: 0 0 8px 0; font-size: 13px; color: var(--muted); }

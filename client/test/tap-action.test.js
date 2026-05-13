@@ -10,7 +10,6 @@ const B_PAWN = { type: 'p', color: 'b' };
 // can override just what it cares about.
 const ctx = (overrides) => ({
   myTurn: true,
-  upgradeMode: false,
   color: 'w',
   selected: null,
   targets: null,
@@ -22,10 +21,6 @@ const ctx = (overrides) => ({
 describe('computeTapAction — gating', () => {
   it('no-ops when it is not our turn', () => {
     assert.deepEqual(computeTapAction(ctx({ myTurn: false, piece: W_PAWN })), {});
-  });
-
-  it('no-ops in upgrade mode (caller handles that path)', () => {
-    assert.deepEqual(computeTapAction(ctx({ upgradeMode: true, piece: W_PAWN })), {});
   });
 });
 

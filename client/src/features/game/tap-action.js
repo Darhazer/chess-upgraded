@@ -9,8 +9,8 @@
 //   move                 → submit move { from, to }
 // A move action always also clears the selection (`select: null`) so the
 // post-tap state is fully described by the return value.
-export function computeTapAction({ myTurn, upgradeMode, color, selected, targets, piece, square }) {
-  if (!myTurn || upgradeMode) return {};
+export function computeTapAction({ myTurn, color, selected, targets, piece, square }) {
+  if (!myTurn) return {};
   if (selected) {
     if (square === selected) return { select: null };
     if (piece && piece.color === color) return { select: square };

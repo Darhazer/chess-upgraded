@@ -7,7 +7,7 @@ import { listVariantActions } from '../src/engine/index.js';
 const startState = () => new RulesEngine().publicState();
 
 function isLegal(publicState, action) {
-  const key = (a) => (a.kind === 'upgrade' ? `@${a.square}` : `${a.from}${a.to}`);
+  const key = (a) => `${a.from}${a.to}`;
   const legal = new Set(listVariantActions(publicState).map(key));
   return legal.has(key(action));
 }

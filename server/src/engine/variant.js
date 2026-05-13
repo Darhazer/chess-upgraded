@@ -11,13 +11,6 @@
 import { customMoveTargets } from '../../../shared/upgrade-rules.js';
 import { getJSONfromFEN } from './vendor/utils.js';
 
-export const DEFAULT_BAR_MAX = 3;
-
-// An upgrade-pick is encoded inside the engine's `{ FROM: [TO] }` move map as a
-// synthetic entry: from-key `@UPGRADE`, targets `@<square>` (e.g. `@E4`).
-export const UPGRADE_FROM = '@UPGRADE';
-export const UPGRADE_TARGET_PREFIX = '@';
-
 // A king's 2-square teleport to one of its own castling squares (E1->C1/G1,
 // E8->C8/G8) is written notationally identically to a castle, and the engine's
 // `move()` always interprets that pair as a castle. So those particular
@@ -29,10 +22,10 @@ export const TELEPORT_PREFIX = '~';
 
 // Evaluation tunables, ported from the previous hand-rolled bot but scaled to
 // this engine's units (it multiplies raw piece values by 10, so a pawn ≈ 10).
-// Eyeballed, not tuned. No pawn entry — an upgraded pawn's worth is captured by
-// it being a pawn at all (and RulesEngine's bot had no pawn entry either).
-export const UPGRADE_BONUS = { n: 6, r: 8, b: 6, q: 12, k: 15 };
-export const BAR_WEIGHT = 1;
+// Eyeballed, not tuned. Upgraded pawns gain a real capability (sideways +
+// backward step), so they get a small bonus too; the upgraded queen gains
+// 8 move-only knight squares, which is worth more than the trimmed teleport.
+export const UPGRADE_BONUS = { p: 3, n: 6, r: 8, b: 6, q: 20, k: 15 };
 
 // Squares where a king's teleport collides with castling notation, by home sq.
 const KING_CASTLE_SQUARES = { E1: new Set(['C1', 'G1']), E8: new Set(['C8', 'G8']) };
@@ -65,35 +58,30 @@ export function customBonusTargets(board, piece, locationUpper) {
 }
 
 // Build the engine's board-config from a RulesEngine.publicState()-shaped
-// object ({ fen, upgraded:[lowerSquares], bar:{w,b}, barMax }).
+// object ({ fen, upgraded:[lowerSquares] }).
 export function buildConfig(publicState) {
   const cfg = getJSONfromFEN(publicState.fen);
   cfg.upgraded = {};
   for (const sq of publicState.upgraded || []) cfg.upgraded[sq.toUpperCase()] = true;
-  cfg.bar = { white: publicState.bar?.w ?? 0, black: publicState.bar?.b ?? 0 };
-  cfg.barMax = publicState.barMax ?? DEFAULT_BAR_MAX;
   return cfg;
 }
 
-// Translate one engine move (`FROM` -> `TO`, both UPPERCASE, or the @UPGRADE
-// encoding) into a RulesEngine action. `cfg` is the pre-move board-config (used
-// only to spot a standard pawn promotion). RulesEngine.tryMove classifies a
-// `{kind:'move'}` itself — it falls through to the custom-move path when the
-// source is an upgraded piece — so we never need to emit `{kind:'custom'}`.
+// Translate one engine move (`FROM` -> `TO`, both UPPERCASE) into a RulesEngine
+// action. `cfg` is the pre-move board-config (used only to spot a pawn
+// promotion). RulesEngine.tryMove classifies a `{kind:'move'}` itself — it
+// falls through to the custom-move path when the source is an upgraded piece —
+// so we never need to emit `{kind:'custom'}`.
 export function actionFromMove(fromUpper, toUpper, cfg) {
-  if (fromUpper === UPGRADE_FROM) {
-    return { kind: 'upgrade', square: toUpper.slice(UPGRADE_TARGET_PREFIX.length).toLowerCase() };
-  }
   const toBare = toUpper[0] === TELEPORT_PREFIX ? toUpper.slice(TELEPORT_PREFIX.length) : toUpper;
   const from = fromUpper.toLowerCase();
   const to = toBare.toLowerCase();
   const action = { kind: 'move', from, to };
   const pieceAtFrom = cfg.pieces[fromUpper];
-  // A *standard* pawn promotion needs the piece spelled out for chess.js; the
-  // engine only ever auto-queens. An upgraded pawn reaching the back rank goes
-  // through RulesEngine's custom-move path, which auto-queens and ignores this
-  // field — so we omit it there to keep the action shape minimal.
-  if (pieceAtFrom && pieceAtFrom.toUpperCase() === 'P' && !cfg.upgraded[fromUpper] &&
+  // A pawn reaching the back rank needs `promotion` spelled out for
+  // chess.js. The engine only ever auto-queens. Applies whether the pawn
+  // is upgraded or not — an upgraded pawn keeps its standard moveset,
+  // including push/capture promotions.
+  if (pieceAtFrom && pieceAtFrom.toUpperCase() === 'P' &&
       (to[1] === '8' || to[1] === '1')) {
     action.promotion = 'q';
   }

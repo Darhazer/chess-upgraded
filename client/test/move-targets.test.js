@@ -27,29 +27,68 @@ describe('legalTargets', () => {
     assert.ok(t.has('a7'), 'standard rook move kept');
   });
 
-  it('REPLACES the moveset for an upgraded pawn — diagonal step, forward capture', () => {
-    // White pawn d4 (upgraded): black pawns on c5 (diagonal — NOT
-    // capturable) and d5 (forward — capturable); e5 empty (diagonal move).
-    const c = new Chess('4k3/8/8/2pp4/3P4/8/8/4K3 w - - 0 1');
+  it('an upgraded pawn keeps every standard move and gains sideways + backward steps', () => {
+    // White pawn d4 (upgraded): black pawn on c5 (standard diagonal capture
+    // is fine), e5 empty (not a standard target since it's not a capture),
+    // d5 empty (standard forward push), c4/e4 empty (bonus sideways),
+    // d3 empty (bonus backward).
+    const c = new Chess('4k3/8/8/2p5/3P4/8/8/4K3 w - - 0 1');
     const t = legalTargets(c, 'd4', new Set(['d4']));
-    assert.deepEqual(t, new Set(['e5', 'd5']));
-    // No standard pawn push and no diagonal capture of c5.
-    assert.ok(!t.has('c5'));
+    assert.ok(t.has('d5'), 'standard forward push kept');
+    assert.ok(t.has('c5'), 'standard diagonal capture kept');
+    assert.ok(t.has('c4'), 'sideways bonus added (left)');
+    assert.ok(t.has('e4'), 'sideways bonus added (right)');
+    assert.ok(t.has('d3'), 'backward bonus added');
+    assert.ok(!t.has('e5'), 'no diagonal move without a capture');
   });
 
-  it('an upgraded pawn with the forward square empty and diagonals blocked has no targets', () => {
-    const c = new Chess('4k3/8/8/2P1P3/3P4/8/8/4K3 w - - 0 1');
-    // d4 white pawn (upgraded): c5/e5 own pawns block the diagonals, d5
-    // empty so no forward capture.
+  it('upgraded pawn sideways/backward is move-only — cannot capture an adjacent enemy', () => {
+    // White pawn d4 (upgraded), black pawn on e4 and on d3.
+    const c = new Chess('4k3/8/8/8/3Pp3/3p4/8/4K3 w - - 0 1');
     const t = legalTargets(c, 'd4', new Set(['d4']));
-    assert.deepEqual(t, new Set());
+    assert.ok(!t.has('e4'), 'cannot capture sideways via bonus pattern');
+    assert.ok(!t.has('d3'), 'cannot capture backward via bonus pattern');
+    assert.ok(t.has('c4'), 'other-side sideways still available');
   });
 
-  it('an upgraded pawn on its 7th rank can still target the back rank (promotion)', () => {
-    // White pawn b7 (upgraded): a8/c8 empty diagonal steps; b8 empty so no
-    // forward capture there.
-    const c = new Chess('4k3/1P6/8/8/8/8/8/4K3 w - - 0 1');
-    const t = legalTargets(c, 'b7', new Set(['b7']));
-    assert.deepEqual(t, new Set(['a8', 'c8']));
+  it('upgraded pawn at h-file has only the one in-bounds sideways step (plus backward)', () => {
+    const c = new Chess('4k3/8/8/8/7P/8/8/4K3 w - - 0 1');
+    const t = legalTargets(c, 'h4', new Set(['h4']));
+    assert.ok(t.has('g4'));
+    assert.ok(t.has('h3'), 'backward step still available');
+    assert.ok(!t.has('i4'));
+  });
+
+  it('an upgraded knight gains the four 1-step orthogonals (move-only)', () => {
+    // White knight d4 (upgraded), black pawn on d5 — the knight's bonus
+    // orthogonal cannot capture it. Standard L-jumps to c6/e6/... unaffected.
+    const c = new Chess('4k3/8/8/3p4/3N4/8/8/4K3 w - - 0 1');
+    const t = legalTargets(c, 'd4', new Set(['d4']));
+    assert.ok(!t.has('d5'), 'bonus cannot capture');
+    assert.ok(t.has('d3'), 'bonus orthogonal step added (south)');
+    assert.ok(t.has('c4'), 'bonus orthogonal step added (west)');
+    assert.ok(t.has('e4'), 'bonus orthogonal step added (east)');
+    assert.ok(t.has('c6'), 'standard L-jump kept');
+  });
+
+  it('an upgraded queen gains 8 knight-L destinations (move-only)', () => {
+    const c = new Chess('4k3/8/8/8/3Q4/8/8/4K3 w - - 0 1');
+    const t = legalTargets(c, 'd4', new Set(['d4']));
+    // All 8 knight squares from d4 should appear as legal bonus targets.
+    for (const sq of ['e6', 'f5', 'f3', 'e2', 'c2', 'b3', 'b5', 'c6']) {
+      assert.ok(t.has(sq), `knight L-jump target ${sq} added`);
+    }
+    // Standard queen slides unaffected.
+    assert.ok(t.has('d8'), 'standard queen slide kept');
+    assert.ok(t.has('h4'), 'standard queen slide kept');
+  });
+
+  it('upgraded queen knight-jump is move-only — cannot capture an enemy on a knight square', () => {
+    // Black pawn on e6 — queen cannot capture it via knight-jump (still
+    // can't reach via standard slide either, since e6 is not on a d4 line).
+    const c = new Chess('4k3/8/4p3/8/3Q4/8/8/4K3 w - - 0 1');
+    const t = legalTargets(c, 'd4', new Set(['d4']));
+    assert.ok(!t.has('e6'), 'cannot capture via knight-jump');
+    assert.ok(t.has('f5'), 'other knight squares still offered');
   });
 });

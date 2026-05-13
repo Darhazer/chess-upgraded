@@ -4,19 +4,14 @@
 // and server/src/rules-engine.js — the latter is the authoritative referee;
 // this fork is only the bot's brain). Changes vs. upstream, all tagged with a
 // `// VARIANT:` comment below:
-//   - `configuration` carries `upgraded` ({ SQUARE: true }), `bar`
-//     ({ white, black }) and `barMax`; `getTestBoard`/`getMoves` copy them so
-//     they survive the per-node board clones the search makes.
-//   - `getPieceMoves` adds the bonus moves an upgraded non-pawn gains and
-//     *replaces* an upgraded pawn's moveset (patterns come from
-//     shared/upgrade-rules.js via ../variant.js).
-//   - `getMoves` synthesises an "@UPGRADE" pseudo-move per eligible piece when
-//     the bar is full and the side to move isn't in check.
+//   - `configuration` carries `upgraded` ({ SQUARE: true });
+//     `getTestBoard`/`getMoves` copy it so it survives the per-node board
+//     clones the search makes.
+//   - `getPieceMoves` adds the move-only bonus moves an upgraded piece gains
+//     (patterns come from shared/upgrade-rules.js via ../variant.js).
 //   - `move` transfers the upgrade flag across moves/captures/castling, drops
-//     it on promotion, fills the bar 1/move, and executes the "@UPGRADE" token.
-//   - `isPieceUnderAttack` knows an upgraded pawn lost its diagonal attack and
-//     gained a straight-ahead one.
-//   - `calculateScore` adds an upgraded-piece bonus and a small bar-tempo term.
+//     it on a no-capture promotion, and auto-upgrades the capturing piece.
+//   - `calculateScore` adds an upgraded-piece bonus.
 
 import {
     AI_LEVELS,
@@ -54,12 +49,8 @@ import { getPieceValue, getJSONfromFEN, isPieceValid, isLocationValid } from './
 // VARIANT: bridge to the shared upgrade-rules patterns + variant tunables.
 import {
     customBonusTargets,
-    UPGRADE_FROM,
-    UPGRADE_TARGET_PREFIX,
     TELEPORT_PREFIX,
     UPGRADE_BONUS,
-    BAR_WEIGHT,
-    DEFAULT_BAR_MAX,
 } from '../variant.js'
 
 const SCORE = {
@@ -68,11 +59,6 @@ const SCORE = {
 }
 
 const PIECE_VALUE_MULTIPLIER = 10
-
-// VARIANT: the bar is keyed by the engine's color strings ('white'/'black').
-function barKey (color) {
-    return color === COLORS.WHITE ? 'white' : 'black'
-}
 
 // VARIANT: Chebyshev distance between two squares ('E1', 'C3' -> 2).
 function squareDistance (a, b) {
@@ -100,8 +86,6 @@ export default class Board {
         }
         // VARIANT: default the upgrade state if the caller didn't provide it.
         if (!this.configuration.upgraded) this.configuration.upgraded = {}
-        if (!this.configuration.bar) this.configuration.bar = { white: 0, black: 0 }
-        if (this.configuration.barMax == null) this.configuration.barMax = DEFAULT_BAR_MAX
         this.history = []
     }
 
@@ -147,18 +131,6 @@ export default class Board {
         const playerColor = this.getPieceOnLocationColor(pieceLocation)
         const enemyColor = this.getEnemyColor(playerColor)
         let isUnderAttack = false
-
-        // VARIANT: an upgraded enemy pawn traded its diagonal capture for one
-        // straight ahead, so it attacks `pieceLocation` iff it sits one step
-        // "behind" it (toward the enemy's own side).
-        const upgradedPawnSquare = downByColor(pieceLocation, enemyColor)
-        if (upgradedPawnSquare) {
-            const p = this.getPiece(upgradedPawnSquare)
-            if (p && this.getPieceColor(p) === enemyColor && this.isPawn(p) &&
-                this.configuration.upgraded[upgradedPawnSquare]) {
-                isUnderAttack = true
-            }
-        }
 
         let field = pieceLocation
         let distance = 0
@@ -218,10 +190,9 @@ export default class Board {
             field = upRightByColor(field, playerColor)
             distance++
             const piece = this.getPiece(field)
-            // VARIANT: an upgraded enemy pawn does not give check on the diagonal.
             if (piece && this.getPieceColor(piece) === enemyColor &&
                 (this.isBishop(piece) || this.isQueen(piece) ||
-                 (distance === 1 && (this.isKing(piece) || (this.isPawn(piece) && !this.configuration.upgraded[field]))))) {
+                 (distance === 1 && (this.isKing(piece) || this.isPawn(piece))))) {
                 isUnderAttack = true
             }
             if (piece) break
@@ -233,10 +204,9 @@ export default class Board {
             field = upLeftByColor(field, playerColor)
             distance++
             const piece = this.getPiece(field)
-            // VARIANT: an upgraded enemy pawn does not give check on the diagonal.
             if (piece && this.getPieceColor(piece) === enemyColor &&
                 (this.isBishop(piece) || this.isQueen(piece) ||
-                 (distance === 1 && (this.isKing(piece) || (this.isPawn(piece) && !this.configuration.upgraded[field]))))) {
+                 (distance === 1 && (this.isKing(piece) || this.isPawn(piece))))) {
                 isUnderAttack = true
             }
             if (piece) break
@@ -360,8 +330,6 @@ export default class Board {
         }
 
         if (movablePiecesRequiredToSkipTest && movablePiecesCount > movablePiecesRequiredToSkipTest) {
-            // VARIANT: include upgrade picks for deep (unfiltered) search nodes too.
-            this.addUpgradePicks(allMoves, color)
             return allMoves
         }
 
@@ -377,8 +345,6 @@ export default class Board {
                     turn: this.configuration.turn,
                     enPassant: this.configuration.enPassant,
                     upgraded: Object.assign({}, this.configuration.upgraded),
-                    bar: Object.assign({}, this.configuration.bar),
-                    barMax: this.configuration.barMax,
                 }
                 const testBoard = new Board(testConfiguration)
                 testBoard.move(from, to)
@@ -394,12 +360,10 @@ export default class Board {
                 // ordinary king moves so our move set equals the referee's. A
                 // king *teleport* is a custom move there, filtered by the
                 // variant-aware check instead (already handled by kingSafe).
-                if (from !== UPGRADE_FROM) {
-                    const moverPiece = this.getPiece(from)
-                    if (moverPiece && this.isKing(moverPiece)) {
-                        const isBonusKingMove = to[0] === TELEPORT_PREFIX || squareDistance(from, to) >= 2
-                        if (!isBonusKingMove && this.isStandardPawnAttacked(to, this.getNonPlayingColor())) return
-                    }
+                const moverPiece = this.getPiece(from)
+                if (moverPiece && this.isKing(moverPiece)) {
+                    const isBonusKingMove = to[0] === TELEPORT_PREFIX || squareDistance(from, to) >= 2
+                    if (!isBonusKingMove && this.isStandardPawnAttacked(to, this.getNonPlayingColor())) return
                 }
                 if (!moves[from]) {
                     moves[from] = []
@@ -413,33 +377,10 @@ export default class Board {
             if (this.hasPlayingPlayerCheck()) {
                 this.configuration.checkMate = true
             }
-            // VARIANT: no legal piece move == game over (mate or stalemate).
-            // An upgrade-pick doesn't keep the game alive — matches
-            // RulesEngine.status(), which counts only piece moves.
             return moves
         }
 
-        this.addUpgradePicks(moves, color)
         return moves
-    }
-
-    // VARIANT: when the bar is full and the side to move isn't in check, each
-    // un-upgraded own piece may be spent-on instead of moved. Encoded as a
-    // synthetic from-key (`@UPGRADE`) -> list of `@<square>` targets, so the
-    // rest of the move/search/legality machinery handles it like any move.
-    addUpgradePicks (movesMap, color) {
-        if (color !== this.getPlayingColor()) return
-        const bar = this.configuration.bar
-        if (!bar || bar[barKey(color)] < this.configuration.barMax) return
-        if (this.hasPlayingPlayerCheck()) return
-        const targets = []
-        for (const location in this.configuration.pieces) {
-            const piece = this.getPiece(location)
-            if (this.getPieceColor(piece) !== color) continue
-            if (this.configuration.upgraded[location]) continue
-            targets.push(`${UPGRADE_TARGET_PREFIX}${location}`)
-        }
-        if (targets.length) movesMap[UPGRADE_FROM] = targets
     }
 
     isLeftCastlingPossible (enemyAttackingFields) {
@@ -486,17 +427,6 @@ export default class Board {
     getPieceMoves (piece, location, attacksOnly = false) {
         const isUpgraded = !!this.configuration.upgraded[location]
 
-        // VARIANT: an upgraded pawn's moveset is *replaced* — a diagonal step
-        // to an empty square (no capture) plus a capture of the piece directly
-        // ahead. For attack purposes it threatens only the square straight up.
-        if (isUpgraded && this.isPawn(piece)) {
-            if (attacksOnly) {
-                const fwd = upByColor(location, this.getPieceColor(piece))
-                return fwd ? [fwd] : []
-            }
-            return customBonusTargets(this, piece, location)
-        }
-
         let moves
         if (this.isPawn(piece)) moves = this.getPawnMoves(piece, location)
         else if (this.isKnight(piece)) moves = this.getKnightMoves(piece, location)
@@ -506,8 +436,9 @@ export default class Board {
         else if (this.isKing(piece)) moves = this.getKingMoves(piece, location)
         else return []
 
-        // VARIANT: an upgraded non-pawn keeps its normal moves and gains its
-        // bonus moves. Bonus moves are move-only, so they are not "attacks".
+        // VARIANT: an upgraded piece keeps its normal moves and gains its
+        // bonus moves. Bonus moves are move-only, so they don't show up as
+        // attacks.
         if (isUpgraded && !attacksOnly) {
             for (const target of customBonusTargets(this, piece, location)) {
                 if (!moves.includes(target)) moves.push(target)
@@ -852,21 +783,6 @@ export default class Board {
     }
 
     move (from, to) {
-        // VARIANT: an "@UPGRADE" pseudo-move — spend the turn marking one of
-        // your pieces as upgraded. Resets the bar, flips the turn, no piece
-        // moves. Mirrors RulesEngine.tryUpgrade().
-        if (from === UPGRADE_FROM) {
-            const square = to.slice(UPGRADE_TARGET_PREFIX.length)
-            const movingColor = this.getPlayingColor()
-            this.configuration.upgraded[square] = true
-            this.configuration.bar[barKey(movingColor)] = 0
-            this.configuration.enPassant = null
-            this.configuration.turn = this.isPlayingWhite() ? COLORS.BLACK : COLORS.WHITE
-            if (this.isPlayingWhite()) this.configuration.fullMove++ // i.e. black just moved
-            this.configuration.halfMove++
-            return
-        }
-
         // VARIANT: a king's teleport to one of its castling squares is tagged
         // (`~C1`/`~G1`/...) so it isn't mistaken for a castle. Strip the tag and
         // remember not to drag a rook along.
@@ -899,24 +815,40 @@ export default class Board {
             promoted = true
         }
 
-        // En passant capture (standard pawns only — an upgraded pawn has no e.p.)
-        if (isPawnMove && !wasUpgraded && to === this.configuration.enPassant) {
+        // En passant capture.
+        let enPassantCapture = false
+        if (isPawnMove && to === this.configuration.enPassant) {
             const captured = downByColor(to, movingColor)
             delete this.configuration.pieces[captured]
             delete this.configuration.upgraded[captured] // VARIANT
+            enPassantCapture = true
         }
 
         // VARIANT: upgrade-flag bookkeeping. A captured piece (incl. en
         // passant, above) loses its flag; the mover carries its flag to the
-        // destination — unless it just promoted (it's a queen now).
+        // destination — unless it just promoted with no capture (the piece
+        // is a queen now). On any capture, the mover is auto-upgraded —
+        // except a K/Q capturing an unupgraded pawn (value-floor rule).
+        const capturedWasUpgraded = chessmanTo && !!this.configuration.upgraded[to]
         if (chessmanTo) delete this.configuration.upgraded[to]
         if (wasUpgraded) {
             delete this.configuration.upgraded[from]
-            if (!promoted) this.configuration.upgraded[to] = true
+        }
+        const captureHappened = !!chessmanTo || enPassantCapture
+        const moverIsKingOrQueen =
+            chessmanFrom === 'K' || chessmanFrom === 'k' ||
+            chessmanFrom === 'Q' || chessmanFrom === 'q'
+        const cheapCapture =
+            captureHappened &&
+            moverIsKingOrQueen &&
+            (chessmanTo === 'P' || chessmanTo === 'p') &&
+            !capturedWasUpgraded
+        if ((captureHappened && !cheapCapture) || (wasUpgraded && !promoted)) {
+            this.configuration.upgraded[to] = true
         }
 
-        // pawn double-push -> en passant target (standard pawns only)
-        if (isPawnMove && !wasUpgraded && !promoted &&
+        // pawn double-push -> en passant target
+        if (isPawnMove && !promoted &&
             ((movingColor === COLORS.WHITE && from[1] === '2' && to[1] === '4') ||
              (movingColor === COLORS.BLACK && from[1] === '7' && to[1] === '5'))) {
             this.configuration.enPassant = `${from[0]}${movingColor === COLORS.WHITE ? '3' : '6'}`
@@ -944,8 +876,8 @@ export default class Board {
             Object.assign(this.configuration.castling, { blackShort: false })
         }
 
-        // Castling - rook is moving too. Like upstream, the recursive rook
-        // move performs the turn flip (and, VARIANT: the bar fill) once.
+        // Castling - rook is moving too. The recursive rook move performs
+        // the turn flip once.
         // VARIANT: ...unless this was a king *teleport* onto a castle square.
         if (this.isKing(chessmanFrom) && !isKingTeleport) {
             if (from === 'E1' && to === 'C1') return this.move('A1', 'D1')
@@ -964,12 +896,6 @@ export default class Board {
         if (chessmanTo || isPawnMove) {
             this.configuration.halfMove = 0
         }
-
-        // VARIANT: the upgrade bar fills 1 unit per move (standard or bonus).
-        this.configuration.bar[barKey(movingColor)] = Math.min(
-            this.configuration.barMax,
-            this.configuration.bar[barKey(movingColor)] + 1,
-        )
     }
 
     exportJson () {
@@ -986,8 +912,6 @@ export default class Board {
             fullMove: this.configuration.fullMove,
             // VARIANT
             upgraded: this.configuration.upgraded,
-            bar: this.configuration.bar,
-            barMax: this.configuration.barMax,
         }
     }
 
@@ -1050,8 +974,6 @@ export default class Board {
             // VARIANT: the search clones the board per node — carry the upgrade
             // state along or it would be silently lost mid-search.
             upgraded: Object.assign({}, this.configuration.upgraded),
-            bar: Object.assign({}, this.configuration.bar),
-            barMax: this.configuration.barMax,
         }
         return new Board(testConfiguration)
     }
@@ -1147,10 +1069,6 @@ export default class Board {
                 scoreIndex += sign * (UPGRADE_BONUS[piece.toLowerCase()] || 0)
             }
         }
-
-        // VARIANT: a small tempo nudge toward filling the bar.
-        const bar = this.configuration.bar || { white: 0, black: 0 }
-        scoreIndex += BAR_WEIGHT * (bar[barKey(playerColor)] - bar[barKey(this.getEnemyColor(playerColor))])
 
         return scoreIndex
     }

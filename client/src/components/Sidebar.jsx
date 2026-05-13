@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import UpgradeBar from './UpgradeBar.jsx';
 import MoveHistory from './MoveHistory.jsx';
 
 const colorName = (c) => (c === 'w' ? 'White' : 'Black');
@@ -35,14 +34,6 @@ export default function Sidebar({
   me,
   opponent,
   myTurn,
-  myBar,
-  oppBar,
-  barMax,
-  opponentColor,
-  upgradeMode,
-  canUpgrade,
-  onStartUpgrade,
-  onCancelUpgrade,
   onResign,
   onLeave,
   moveError,
@@ -64,28 +55,7 @@ export default function Sidebar({
       {status === 'waiting' && <Invite roomCode={room.code} />}
 
       {status === 'playing' && (
-        <>
-          <div className="turn">{myTurn ? 'Your move' : "Opponent's move"}</div>
-          <div className="bars">
-            <UpgradeBar label={`You (${colorName(room.color)})`} value={myBar} max={barMax} mine />
-            <UpgradeBar label={`Opp (${colorName(opponentColor)})`} value={oppBar} max={barMax} />
-          </div>
-          {!upgradeMode && (
-            <button
-              className={canUpgrade ? 'primary' : ''}
-              disabled={!canUpgrade}
-              onClick={onStartUpgrade}
-            >
-              {canUpgrade ? 'Upgrade a piece' : `Upgrade (${myBar}/${barMax})`}
-            </button>
-          )}
-          {upgradeMode && (
-            <div className="upgrade-prompt">
-              <p>Click one of your highlighted pieces to upgrade.</p>
-              <button onClick={onCancelUpgrade}>Cancel</button>
-            </div>
-          )}
-        </>
+        <div className="turn">{myTurn ? 'Your move' : "Opponent's move"}</div>
       )}
 
       {status === 'over' && result && <ResultBanner result={result} />}

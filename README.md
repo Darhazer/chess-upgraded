@@ -6,33 +6,23 @@ Play at https://chess-upgraded.com
 
 ## Rules
 
-Standard chess rules apply (chess.js handles validation). On top of that, each player has an **upgrade bar** that fuels a piece-upgrade ability:
+Standard chess rules apply (chess.js handles validation). On top of that, **capturing a piece automatically upgrades the capturing piece** (with one exception: a king or queen capturing an unupgraded pawn doesn't earn the upgrade — the strongest pieces don't ramp up on free pawn-snacks). The upgrade follows the piece across moves and is lost when the piece is captured.
 
-- **Upgrade bar** — fills 1 unit per move. Once full, the player can spend a turn to upgrade one of their pieces. The bar caps at full and stays there until used; using it ends the turn (no move that turn) and resets the bar to 0.
-- **Configurable threshold** — defaults to 3 moves to fill. Override with `UPGRADE_BAR_MAX=10` (or any value) on the server.
-- **Restrictions** — an already-upgraded piece cannot be re-upgraded; you cannot upgrade while in check (must address check first). The upgrade follows the piece across moves and is lost when the piece is captured.
-
-Most upgraded pieces gain extra moves *on top of* their normal ones. Every one of these bonus moves is **move-only** — the destination square must be empty, they can never capture:
+Every upgraded piece gains an extra move *on top of* its normal ones. Every bonus move is **move-only** — the destination square must be empty, none of them can capture:
 
 - **Rook** — also moves 1 square diagonally (one-step only, no capture).
 - **Bishop** — also moves 1 square orthogonally (one-step only, no capture).
-- **Knight** — also makes a 2,2 jump in addition to its normal L-shape (4 new target squares, no capture).
-- **King** and **Queen** — gain a **teleport**: exactly 2 squares in any of the 8 directions, may pass over a single intermediate piece, **target square must be empty** (no capture by teleport).
+- **Knight** — also steps 1 square orthogonally (no capture). Fills in the four squares the knight normally cannot touch.
+- **King** — gains a **teleport**: exactly 2 squares orthogonally (4 directions), may pass over a single intermediate piece, **target square must be empty** (no capture by teleport).
+- **Queen** — gains the **knight's L-jump** (move-only): may leap to any of her 8 knight squares, but only to an empty square. She still cannot capture via the bonus.
+- **Pawn** — also steps **one square sideways or one square backward** to an empty square (move-only). It keeps every standard pawn move, including the diagonal capture.
 
-The **pawn** is the exception — upgrading it *replaces* its moveset rather than extending it:
+**Pawn promotion:** any pawn that reaches the last rank promotes (auto-queens). A no-capture promotion produces a plain queen — the upgrade marker doesn't carry over. A capture-promotion (diagonal capture into the back rank) leaves the resulting queen upgraded, via the same auto-upgrade-on-capture rule that applies everywhere else.
 
-- It moves **one square diagonally forward** to an **empty** square (the diagonal is now a move, not a capture).
-- It captures **only the piece directly in front of it** — one square straight ahead (forward is now a capture, not a move).
-- It no longer pushes forward 1–2 squares and no longer captures on the diagonal.
-- It also no longer threatens its old diagonal-capture squares for check purposes — only the square directly ahead.
-
-**Pawn promotion:** any pawn that reaches the last rank promotes (auto-queens). A normal pawn gets there the usual way — a standard push or diagonal capture. An **upgraded** pawn gets there via its replaced moveset: a diagonal step onto an empty back-rank square, or a forward capture of a piece on the back rank. On promotion the piece becomes a regular queen and **loses its upgrade marker** — it's a fresh queen, not an upgraded one. (As everywhere else, an upgraded pawn cannot capture on the diagonal, so it can't promote by a diagonal capture the way a normal pawn does.)
-
-Game-over detection takes the upgraded moves into account: an upgraded king can escape what would otherwise be checkmate, an upgraded rook's diagonal step can block a check, an upgraded pawn's forward capture can deliver check, etc.
+Game-over detection takes the upgraded moves into account: an upgraded king can escape what would otherwise be checkmate, an upgraded rook's diagonal step can block a check, etc.
 
 Visual cues:
 
-- Each side's upgrade bar is shown in the sidebar; the bar glows gold when full.
 - Upgraded pieces are rendered with a gold drop-shadow + hue shift, so the figure itself looks visually distinct.
 - Hovering over an upgraded piece (or any of yours) on drag-start shows the legal target squares as inset blue shadows.
 
@@ -48,12 +38,12 @@ cd server && pnpm install && pnpm dev      # :3001
 cd client && pnpm install && pnpm dev      # :5173
 ```
 
-Open http://localhost:5173. Set `UPGRADE_BAR_MAX=10` (etc.) on the server to change the upgrade threshold.
+Open http://localhost:5173.
 
 ## Game flow
 
 - **Play public** — joins an open public room or creates one; first player is white.
-- **Play vs computer** — creates a room against the built-in bot (you play white). The bot is a fork of [js-chess-engine](https://github.com/josefjadrny/js-chess-engine) (`server/src/engine/`) taught the variant — it searches upgrade picks, bonus moves and teleports as first-class moves, not just standard chess. Strength tracks the engine's level (0–4); default 2, override with `BOT_LEVEL` on the server. The search runs in a `worker_threads` pool (`server/src/engine/search-pool.js`) so it never blocks the game loop — `BOT_WORKERS` sets the pool size (default: CPU count − 1; `0` runs the search in-process), `BOT_SEARCH_TIMEOUT_MS` caps a single search before the worker is recycled.
+- **Play vs computer** — creates a room against the built-in bot (you play white). The bot is a fork of [js-chess-engine](https://github.com/josefjadrny/js-chess-engine) (`server/src/engine/`) taught the variant — it searches bonus moves and teleports as first-class moves, not just standard chess, and values upgraded pieces in its evaluation. Strength tracks the engine's level (0–4); default 2, override with `BOT_LEVEL` on the server. The search runs in a `worker_threads` pool (`server/src/engine/search-pool.js`) so it never blocks the game loop — `BOT_WORKERS` sets the pool size (default: CPU count − 1; `0` runs the search in-process), `BOT_SEARCH_TIMEOUT_MS` caps a single search before the worker is recycled.
 - **Create private room** — server returns a 6-character code. Share the invite link (`?room=CODE`) or paste the code in another browser.
 - **Join** — paste the code to join an existing private room.
 

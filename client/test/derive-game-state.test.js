@@ -7,8 +7,6 @@ const baseState = {
   status: 'playing',
   turn: 'w',
   upgraded: [],
-  bar: { w: 0, b: 0 },
-  barMax: 3,
   players: [
     { color: 'w', name: 'Alice' },
     { color: 'b', name: 'Bob' },
@@ -22,9 +20,6 @@ describe('deriveGameState', () => {
     const g = deriveGameState({ code: 'XYZ', color: 'w' }, null);
     assert.equal(g.fen, 'start');
     assert.equal(g.myTurn, false);
-    assert.equal(g.canUpgrade, false);
-    assert.equal(g.barMax, 3);
-    assert.equal(g.myBar, 0);
     assert.deepEqual([...g.upgradedSet], []);
     assert.deepEqual(g.history, []);
   });
@@ -51,30 +46,6 @@ describe('deriveGameState', () => {
     );
   });
 
-  it('reads bars per side from state.bar', () => {
-    const s = { ...baseState, bar: { w: 2, b: 3 } };
-    const g = deriveGameState({ color: 'w' }, s);
-    assert.equal(g.myBar, 2);
-    assert.equal(g.oppBar, 3);
-  });
-
-  it('canUpgrade requires myTurn AND bar >= barMax', () => {
-    assert.equal(
-      deriveGameState({ color: 'w' }, { ...baseState, bar: { w: 3, b: 0 } }).canUpgrade,
-      true
-    );
-    assert.equal(
-      deriveGameState({ color: 'w' }, { ...baseState, bar: { w: 2, b: 0 } }).canUpgrade,
-      false
-    );
-    assert.equal(
-      // bar full but not my turn
-      deriveGameState({ color: 'w' }, { ...baseState, turn: 'b', bar: { w: 3, b: 0 } })
-        .canUpgrade,
-      false
-    );
-  });
-
   it('upgradedSet is a Set built from state.upgraded', () => {
     const g = deriveGameState({ color: 'w' }, { ...baseState, upgraded: ['a1', 'h8'] });
     assert.ok(g.upgradedSet instanceof Set);
@@ -87,11 +58,6 @@ describe('deriveGameState', () => {
     const g = deriveGameState({ color: 'w' }, baseState);
     assert.equal(g.me.name, 'Alice');
     assert.equal(g.opponent.name, 'Bob');
-  });
-
-  it('falls back to default barMax when missing', () => {
-    const { barMax: _omit, ...noBarMax } = baseState;
-    assert.equal(deriveGameState({ color: 'w' }, noBarMax).barMax, 3);
   });
 
   it('passes status, result, history through', () => {

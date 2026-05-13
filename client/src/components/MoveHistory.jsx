@@ -6,9 +6,7 @@ export default function MoveHistory({ history }) {
         {history.map((m, i) => (
           <li
             key={i}
-            className={
-              m.kind === 'upgrade' ? 'upgrade-entry' : m.kind === 'custom' ? 'custom-entry' : ''
-            }
+            className={m.kind === 'custom' ? 'custom-entry' : ''}
           >
             {m.san}
           </li>

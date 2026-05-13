@@ -4,12 +4,10 @@ import { pathToFileURL } from 'url';
 import cors from 'cors';
 import { Server } from 'socket.io';
 import { RoomStore } from './rooms.js';
-import { DEFAULT_BAR_MAX } from './rules-engine.js';
 import { chooseAction, BOT_COLOR } from './bot.js';
 
 const PORT = process.env.PORT || 3001;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
-const BAR_MAX = parseInt(process.env.UPGRADE_BAR_MAX, 10) || DEFAULT_BAR_MAX;
 // How long a player can be disconnected before we drop their seat. Short
 // blips (page reloads, network hiccups, Socket.IO heartbeat timeouts) need
 // to survive this window so the player can come back via lobby:rejoin.
@@ -38,7 +36,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: CLIENT_ORIGIN } });
 
-const store = new RoomStore({ barMax: BAR_MAX });
+const store = new RoomStore();
 
 // socketId -> { code, playerId } so disconnect can find the player slot.
 const socketPlayer = new Map();
@@ -331,27 +329,6 @@ io.on('connection', (socket) => {
     runBotIfNeeded(room);
   });
 
-  on('game:upgrade', (payload, ack) => {
-    const { code, square } = payload || {};
-    if (!isNonEmptyString(code)) return ack?.({ ok: false, error: 'room not found' });
-    if (!isNonEmptyString(square)) return ack?.({ ok: false, error: 'invalid square' });
-    const room = store.get(code);
-    if (!room) return ack?.({ ok: false, error: 'room not found' });
-    if (room.status !== 'playing') return ack?.({ ok: false, error: 'game not active' });
-
-    const player = playerForSocket(room, socket);
-    if (!player) return ack?.({ ok: false, error: 'not in room' });
-    if (player.color !== room.engine.turn()) return ack?.({ ok: false, error: 'not your turn' });
-
-    const result = room.engine.tryUpgrade(square);
-    if (!result.ok) return ack?.({ ok: false, error: result.reason });
-
-    applyTerminal(room);
-    ack?.({ ok: true });
-    emitRoomState(room);
-    runBotIfNeeded(room);
-  });
-
   on('game:resign', (payload) => {
     const { code } = payload || {};
     if (!isNonEmptyString(code)) return;
@@ -385,7 +362,7 @@ io.on('connection', (socket) => {
 // (e.g. from tests) gets the wired-up `server`/`io` without binding a port.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   server.listen(PORT, () => {
-    console.log(`chess server listening on :${PORT} (upgrade bar max: ${BAR_MAX})`);
+    console.log(`chess server listening on :${PORT}`);
   });
 }
 

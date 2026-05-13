@@ -6,9 +6,8 @@ const codeId = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6);
 // In-memory room registry. Each room has up to 2 players.
 // Public rooms are auto-matched; private rooms are joined by code.
 export class RoomStore {
-  constructor({ barMax } = {}) {
+  constructor() {
     this.rooms = new Map(); // code -> Room
-    this.barMax = barMax;
   }
 
   createRoom({ visibility, mode = 'pvp' }) {
@@ -19,7 +18,7 @@ export class RoomStore {
       visibility, // 'public' | 'private' | 'bot'
       mode,       // 'pvp' | 'bot'
       players: [], // [{ socketId, color, name }]
-      engine: new RulesEngine({ barMax: this.barMax }),
+      engine: new RulesEngine(),
       createdAt: Date.now(),
       status: 'waiting', // 'waiting' | 'playing' | 'over'
       result: null, // populated when status === 'over'
@@ -105,7 +104,6 @@ export class RoomStore {
       turn: game.turn,
       history: game.history,
       upgraded: game.upgraded,
-      bar: game.bar,
     };
   }
 }

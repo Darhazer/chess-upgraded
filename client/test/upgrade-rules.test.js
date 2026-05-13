@@ -2,7 +2,6 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Chess } from 'chess.js';
 import {
-  customAttackSquares,
   customMoveTargets,
   validateCustomPattern,
 } from '../../shared/upgrade-rules.js';
@@ -24,23 +23,50 @@ describe('customMoveTargets', () => {
     assert.deepEqual(new Set(t), new Set(['d5', 'd3', 'e4', 'c4']));
   });
 
-  it('knight gains four (±2, ±2) jumps', () => {
+  it('knight gains the four 1-step orthogonals', () => {
     const t = customMoveTargets('n', 'd4', 'w', fakeBoard());
-    assert.deepEqual(new Set(t), new Set(['f6', 'f2', 'b6', 'b2']));
+    assert.deepEqual(new Set(t), new Set(['d5', 'd3', 'e4', 'c4']));
   });
 
-  it('king/queen teleport: 8 directions, 2 squares', () => {
+  it('king teleport: 4 orthogonal directions, 2 squares', () => {
     const t = customMoveTargets('k', 'd4', 'w', fakeBoard());
+    assert.deepEqual(new Set(t), new Set(['d6', 'd2', 'f4', 'b4']));
+  });
+
+  it('queen gains the 8 knight-L destinations', () => {
+    const t = customMoveTargets('q', 'd4', 'w', fakeBoard());
     assert.deepEqual(
       new Set(t),
-      new Set(['d6', 'd2', 'f4', 'b4', 'f6', 'f2', 'b6', 'b2'])
+      new Set(['e6', 'f5', 'f3', 'e2', 'c2', 'b3', 'b5', 'c6'])
     );
+  });
+
+  it('pawn gains sideways + 1-step backward (white moves back toward rank 1)', () => {
+    const t = customMoveTargets('p', 'd4', 'w', fakeBoard());
+    assert.deepEqual(new Set(t), new Set(['c4', 'e4', 'd3']));
+  });
+
+  it('pawn backward direction flips for black (toward rank 8)', () => {
+    const t = customMoveTargets('p', 'd5', 'b', fakeBoard());
+    assert.deepEqual(new Set(t), new Set(['c5', 'e5', 'd6']));
   });
 
   it('drops targets off the board', () => {
     // a1 corner: only NE-quadrant deltas survive bounds for a rook.
     const t = customMoveTargets('r', 'a1', 'w', fakeBoard());
     assert.deepEqual(t, ['b2']);
+  });
+
+  it('pawn sideways drops off-board at the a/h files (backward stays in bounds)', () => {
+    assert.deepEqual(new Set(customMoveTargets('p', 'a4', 'w', fakeBoard())), new Set(['b4', 'a3']));
+    assert.deepEqual(new Set(customMoveTargets('p', 'h4', 'w', fakeBoard())), new Set(['g4', 'h3']));
+  });
+
+  it('pawn backward step is filtered when it would land on rank 1 / rank 8', () => {
+    // chess.js refuses pawns on the back rank, so backward from rank 2 / 7
+    // is dropped at the targets level — only sideways squares remain.
+    assert.deepEqual(new Set(customMoveTargets('p', 'd2', 'w', fakeBoard())), new Set(['c2', 'e2']));
+    assert.deepEqual(new Set(customMoveTargets('p', 'd7', 'b', fakeBoard())), new Set(['c7', 'e7']));
   });
 
   it('drops targets occupied by own pieces', () => {
@@ -57,62 +83,28 @@ describe('customMoveTargets', () => {
     assert.ok(t.includes('c5'));
   });
 
-  it('teleport (king/queen) drops ANY occupied square — no capture', () => {
+  it('pawn sideways/backward cannot capture either', () => {
+    const board = fakeBoard({
+      e4: { color: 'b', type: 'p' },
+      d3: { color: 'b', type: 'p' },
+    });
+    const t = customMoveTargets('p', 'd4', 'w', board);
+    assert.ok(!t.includes('e4'), 'sideways capture rejected');
+    assert.ok(!t.includes('d3'), 'backward capture rejected');
+    assert.ok(t.includes('c4'), 'other-side sideways still available');
+  });
+
+  it('king teleport drops ANY occupied square — no capture', () => {
     const board = fakeBoard({ d6: { color: 'b', type: 'p' } });
     const t = customMoveTargets('k', 'd4', 'w', board);
     assert.ok(!t.includes('d6'));
   });
 
-  it('pawn (white): diagonal-forward to empty squares, forward capture only when an enemy is there', () => {
-    // White pawn d4: diagonals are c5/e5, forward is d5.
-    const board = fakeBoard({
-      d5: { color: 'b', type: 'p' }, // enemy directly ahead — forward capture
-      c5: { color: 'w', type: 'p' }, // own piece on diagonal — blocked
-    });
-    const t = customMoveTargets('p', 'd4', 'w', board);
-    // c5 blocked (own piece), e5 empty (diagonal move OK), d5 enemy (forward capture OK).
-    assert.deepEqual(new Set(t), new Set(['e5', 'd5']));
-  });
-
-  it('pawn (white): diagonal target with enemy is NOT a valid move (no diagonal capture)', () => {
-    const board = fakeBoard({
-      c5: { color: 'b', type: 'p' }, // enemy on diagonal
-      e5: { color: 'b', type: 'p' }, // enemy on other diagonal
-    });
-    const t = customMoveTargets('p', 'd4', 'w', board);
-    assert.ok(!t.includes('c5'), 'diagonal capture not allowed via the custom path');
-    assert.ok(!t.includes('e5'), 'diagonal capture not allowed via the custom path');
-  });
-
-  it('pawn (black): mirrored direction', () => {
-    // Black pawn on d5: diagonals forward are c4/e4; forward is d4.
-    const board = fakeBoard({ d4: { color: 'w', type: 'p' } });
-    const t = customMoveTargets('p', 'd5', 'b', board);
-    assert.deepEqual(new Set(t), new Set(['c4', 'e4', 'd4']));
-  });
-
-  it('pawn diagonal move requires the diagonal square to be empty', () => {
-    // White pawn d4, enemy on c5 — diagonal blocked because diagonals
-    // are move-only (no capture). c5 must not be a target.
-    const board = fakeBoard({ c5: { color: 'b', type: 'p' } });
-    const t = customMoveTargets('p', 'd4', 'w', board);
-    assert.ok(!t.includes('c5'));
-  });
-
-  it('pawn forward move only when an enemy occupies the square', () => {
-    const t = customMoveTargets('p', 'd4', 'w', fakeBoard()); // empty board
-    assert.ok(!t.includes('d5'), 'no enemy ahead → no forward custom move');
-    const blocked = customMoveTargets('p', 'd4', 'w', fakeBoard({ d5: { color: 'w', type: 'p' } }));
-    assert.ok(!blocked.includes('d5'), 'own piece ahead → no forward capture');
-  });
-
-  it('pawn can target the back rank (it promotes there)', () => {
-    // White pawn on a7: b8 empty (diagonal step), a8 enemy (forward capture).
-    const board = fakeBoard({ a8: { color: 'b', type: 'r' } });
-    assert.deepEqual(new Set(customMoveTargets('p', 'a7', 'w', board)), new Set(['b8', 'a8']));
-    // Black pawn on b2 mirrors: a1/c1 diagonals, b1 forward.
-    const board2 = fakeBoard({ b1: { color: 'w', type: 'r' } });
-    assert.deepEqual(new Set(customMoveTargets('p', 'b2', 'b', board2)), new Set(['a1', 'c1', 'b1']));
+  it('queen knight-jump drops ANY occupied square — no capture', () => {
+    const board = fakeBoard({ e6: { color: 'b', type: 'p' } });
+    const t = customMoveTargets('q', 'd4', 'w', board);
+    assert.ok(!t.includes('e6'));
+    assert.ok(t.includes('f5'));
   });
 
   it('works with a real chess.js instance', () => {
@@ -120,29 +112,6 @@ describe('customMoveTargets', () => {
     const t = customMoveTargets('r', 'a1', 'w', c);
     // a1 is a white rook in the start position, b2 has a white pawn — own piece blocks.
     assert.deepEqual(t, []);
-  });
-});
-
-describe('customAttackSquares', () => {
-  it('returns [] for r/b/n — their bonus moves are move-only (no capture)', () => {
-    for (const type of ['r', 'b', 'n']) {
-      assert.deepEqual(customAttackSquares(type, 'd4', 'w'), []);
-    }
-  });
-
-  it('returns [] for king/queen — teleports cannot capture', () => {
-    assert.deepEqual(customAttackSquares('k', 'd4'), []);
-    assert.deepEqual(customAttackSquares('q', 'd4'), []);
-  });
-
-  it('pawn attacks the square directly in front, color-aware', () => {
-    assert.deepEqual(customAttackSquares('p', 'd4', 'w'), ['d5']);
-    assert.deepEqual(customAttackSquares('p', 'd4', 'b'), ['d3']);
-  });
-
-  it('pawn attack square drops off the board at the back rank', () => {
-    assert.deepEqual(customAttackSquares('p', 'd8', 'w'), []);
-    assert.deepEqual(customAttackSquares('p', 'd1', 'b'), []);
   });
 });
 
@@ -163,58 +132,62 @@ describe('validateCustomPattern', () => {
     assert.equal(validateCustomPattern('b', 'd4', 'e5').ok, false);
   });
 
-  it('knight: accepts (2,2) move-only, rejects standard L', () => {
-    const ok = validateCustomPattern('n', 'd4', 'f6');
+  it('knight: accepts 1-step orthogonal move-only, rejects standard L and old (2,2) jump', () => {
+    const ok = validateCustomPattern('n', 'd4', 'd5');
     assert.equal(ok.ok, true);
     assert.equal(ok.noCapture, true);
-    assert.equal(validateCustomPattern('n', 'd4', 'e6').ok, false);
+    assert.equal(validateCustomPattern('n', 'd4', 'e4').noCapture, true);
+    assert.equal(validateCustomPattern('n', 'd4', 'e6').ok, false, 'standard L is not a bonus');
+    assert.equal(validateCustomPattern('n', 'd4', 'f6').ok, false, '(2,2) is no longer the bonus');
   });
 
-  it('king/queen: accepts 2-step ortho or 2-step diag, marks noCapture', () => {
+  it('king: accepts 2-step orthogonal, rejects diagonals and shorter steps', () => {
     const ortho = validateCustomPattern('k', 'd4', 'd6');
     assert.equal(ortho.ok, true);
     assert.equal(ortho.noCapture, true);
 
-    const diag = validateCustomPattern('q', 'd4', 'f6');
-    assert.equal(diag.ok, true);
-    assert.equal(diag.noCapture, true);
-
+    // Diagonal 2-step is no longer a king bonus pattern.
+    assert.equal(validateCustomPattern('k', 'd4', 'f6').ok, false);
     assert.equal(validateCustomPattern('k', 'd4', 'd5').ok, false);
     assert.equal(validateCustomPattern('k', 'd4', 'f5').ok, false);
   });
 
-  it('pawn (white): diagonal forward is move-only, forward is capture-only', () => {
-    const diag = validateCustomPattern('p', 'd4', 'e5', 'w');
-    assert.equal(diag.ok, true);
-    assert.equal(diag.noCapture, true);
-    assert.equal(diag.promotion, false);
+  it('queen: accepts knight L-jumps (move-only), rejects the old teleport pattern', () => {
+    const l1 = validateCustomPattern('q', 'd4', 'e6');
+    assert.equal(l1.ok, true);
+    assert.equal(l1.noCapture, true);
 
-    const fwd = validateCustomPattern('p', 'd4', 'd5', 'w');
-    assert.equal(fwd.ok, true);
-    assert.equal(fwd.mustCapture, true);
-    assert.equal(fwd.promotion, false);
+    const l2 = validateCustomPattern('q', 'd4', 'f5');
+    assert.equal(l2.ok, true);
+    assert.equal(l2.noCapture, true);
 
-    // Backward / sideways / two-square — all rejected.
-    assert.equal(validateCustomPattern('p', 'd4', 'd3', 'w').ok, false);
-    assert.equal(validateCustomPattern('p', 'd4', 'e4', 'w').ok, false);
-    assert.equal(validateCustomPattern('p', 'd4', 'd6', 'w').ok, false);
+    // Old 2-step teleport is no longer a queen bonus pattern.
+    assert.equal(validateCustomPattern('q', 'd4', 'd6').ok, false);
+    assert.equal(validateCustomPattern('q', 'd4', 'f6').ok, false);
   });
 
-  it('pawn (black): mirrored direction', () => {
-    assert.equal(validateCustomPattern('p', 'd5', 'c4', 'b').ok, true);
-    assert.equal(validateCustomPattern('p', 'd5', 'd4', 'b').mustCapture, true);
-    assert.equal(validateCustomPattern('p', 'd5', 'd6', 'b').ok, false);
-  });
+  it('pawn: accepts sideways and backward (color-dependent), rejects everything else', () => {
+    // Sideways (color-agnostic, rank-preserving).
+    assert.equal(validateCustomPattern('p', 'd4', 'c4', 'w').ok, true);
+    assert.equal(validateCustomPattern('p', 'd4', 'e4', 'w').ok, true);
+    assert.equal(validateCustomPattern('p', 'd5', 'c5', 'b').ok, true);
 
-  it('pawn: marks back-rank moves as promotions', () => {
-    const diag = validateCustomPattern('p', 'a7', 'b8', 'w');
-    assert.equal(diag.ok, true);
-    assert.equal(diag.noCapture, true);
-    assert.equal(diag.promotion, true);
+    // Backward 1 square: white moves to rank-1, black to rank+1.
+    const wback = validateCustomPattern('p', 'd4', 'd3', 'w');
+    assert.equal(wback.ok, true);
+    assert.equal(wback.noCapture, true);
+    const bback = validateCustomPattern('p', 'd5', 'd6', 'b');
+    assert.equal(bback.ok, true);
+    assert.equal(bback.noCapture, true);
 
-    const fwd = validateCustomPattern('p', 'a2', 'a1', 'b');
-    assert.equal(fwd.ok, true);
-    assert.equal(fwd.mustCapture, true);
-    assert.equal(fwd.promotion, true);
+    // Backward in the wrong direction (i.e. forward) is NOT a bonus pattern —
+    // forward moves go through the standard chess.js path.
+    assert.equal(validateCustomPattern('p', 'd4', 'd5', 'w').ok, false);
+    assert.equal(validateCustomPattern('p', 'd5', 'd4', 'b').ok, false);
+
+    // Diagonal / two-square — rejected by the bonus pattern.
+    assert.equal(validateCustomPattern('p', 'd4', 'e5', 'w').ok, false);
+    assert.equal(validateCustomPattern('p', 'd4', 'd2', 'w').ok, false);
+    assert.equal(validateCustomPattern('p', 'd4', 'f4', 'w').ok, false);
   });
 });

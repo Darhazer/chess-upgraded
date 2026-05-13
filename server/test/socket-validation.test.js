@@ -112,17 +112,6 @@ describe('socket payload validation', () => {
     assert.equal(ok.ok, true);
   });
 
-  it('rejects a non-string square on game:upgrade', async () => {
-    const c = connect();
-    await ready(c);
-
-    assert.equal((await emit(c, 'game:upgrade', { code: 'AAAAAA', square: { x: 1 } })).error, 'invalid square');
-    assert.equal((await emit(c, 'game:upgrade', { code: 'AAAAAA' })).error, 'invalid square');
-
-    const ok = await emit(c, 'lobby:public', { playerId: 'p1' });
-    assert.equal(ok.ok, true);
-  });
-
   it('drops a non-string name and truncates an oversized one', async () => {
     // Non-string name -> falls back to the default seat name.
     const c1 = connect();
