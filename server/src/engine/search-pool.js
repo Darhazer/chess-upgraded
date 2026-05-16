@@ -88,6 +88,12 @@ export class SearchPool {
     slot.worker.on('exit', (code) => {
       if (code !== 0) this._onWorkerGone(slot, new Error(`search worker exited with code ${code}`));
     });
+    // Idle workers are unref'd so the pool never keeps the process alive on its
+    // own; we ref() while a search is in flight (see _dispatch) so the awaited
+    // result actually keeps the event loop running. Without that, a caller that
+    // only awaits pool.run() — e.g. the test process — can see the loop drain
+    // and node:test cancels the pending test with "Promise resolution is still
+    // pending but the event loop has already resolved."
     slot.worker.unref();
     this.workers.push(slot);
     return slot;
@@ -96,6 +102,7 @@ export class SearchPool {
   _dispatch(slot, job) {
     const id = this.nextId++;
     slot.busy = true;
+    slot.worker.ref();
     const timer = setTimeout(() => {
       const entry = this.pending.get(id);
       if (!entry) return;
@@ -117,6 +124,7 @@ export class SearchPool {
       else entry.resolve(msg.action ?? null);
     }
     slot.busy = false;
+    slot.worker.unref();
     this._drain();
   }
 
