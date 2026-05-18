@@ -65,14 +65,18 @@ export default function Game({ room, state, onLeave }) {
     myTurn: g.myTurn,
     color: room.color,
     local: g.local,
+    variant: g.variant,
     upgradedSet: g.upgradedSet,
+    kingOverrides: g.kingOverrides,
   });
 
   const tap = useTapMove({
     myTurn: g.myTurn,
     color: room.color,
     local: g.local,
+    variant: g.variant,
     upgradedSet: g.upgradedSet,
+    kingOverrides: g.kingOverrides,
     submitMove,
     selected,
     setSelected,
@@ -114,15 +118,15 @@ export default function Game({ room, state, onLeave }) {
 
   const customSquareStyles = useMemo(
     () => mergeSquareStyles(
-      upgradedGlowLayer(g.upgradedSet),
+      upgradedGlowLayer(g.glowSquares),
       selectedSquareLayer(visibleSelected),
       visibleTargets && dragHintLayer(visibleTargets),
       visibleDragHints && dragHintLayer(visibleDragHints),
     ),
-    [g.upgradedSet, visibleDragHints, visibleSelected, visibleTargets]
+    [g.glowSquares, visibleDragHints, visibleSelected, visibleTargets]
   );
 
-  const customPieces = useCustomPieces(g.upgradedSet);
+  const customPieces = useCustomPieces(g.glowSquares, g.kingOverrides);
   const boardWidth = useBoardWidth();
 
   const resign = useCallback(() => gameApi.resign(socket, room.code), [socket, room.code]);
@@ -131,6 +135,7 @@ export default function Game({ room, state, onLeave }) {
     <div className="game">
       <Sidebar
         room={room}
+        variant={g.variant}
         status={g.status}
         result={g.result}
         me={g.me}

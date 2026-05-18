@@ -27,8 +27,11 @@ function ResultBanner({ result }) {
   );
 }
 
+const variantName = (v) => (v === 'cannibal' ? 'Cannibal Chess' : 'Chess Upgraded');
+
 export default function Sidebar({
   room,
+  variant,
   status,
   result,
   me,
@@ -43,6 +46,7 @@ export default function Sidebar({
     <aside className="sidebar">
       <div className="room-meta">
         <div><strong>Room:</strong> <span className="code">{room.code}</span></div>
+        <div><strong>Variant:</strong> {variantName(variant)}</div>
         <div>
           <strong>You:</strong> {me?.name || colorName(room.color)} ({colorName(room.color)})
         </div>

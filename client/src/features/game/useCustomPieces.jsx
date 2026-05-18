@@ -25,25 +25,36 @@ function UpgradedPiece({ html, isUpgraded, squareWidth }) {
   );
 }
 
-// Same Cburnett SVG as react-chessboard's default, but the upgraded
-// variant gets a piece-only drop-shadow + hue shift so the visual change
-// lives on the figure rather than around it. The renderers stay stable
-// across renders (same react-chessboard memoization caveat that
-// useDragHints addresses) and read the upgrade set from a ref.
-export function useCustomPieces(upgradedSet) {
-  const upgradedRef = useLatest(upgradedSet);
+// Same Cburnett SVG as react-chessboard's default, but a glowing square
+// (an upgraded piece in chess-upgraded, or a cannibalised king in Cannibal
+// Chess) gets a piece-only drop-shadow + hue shift so the visual change lives
+// on the figure rather than around it.
+//
+// In Cannibal Chess a king that has captured keeps its 'k' in the FEN but is
+// drawn as the piece it became: `kingOverrides` maps such a square to its new
+// movement-type, and the renderer swaps in that piece's SVG (same colour).
+//
+// The renderers stay stable across renders (same react-chessboard memoization
+// caveat useDragHints addresses) and read live state from refs.
+export function useCustomPieces(glowSquares, kingOverrides = {}) {
+  const glowRef = useLatest(glowSquares);
+  const overridesRef = useLatest(kingOverrides);
   return useMemo(() => {
     const out = {};
     for (const code of PIECE_CODES) {
-      const html = PIECE_SVGS[code];
-      out[code] = ({ squareWidth, square }) => (
-        <UpgradedPiece
-          html={html}
-          isUpgraded={upgradedRef.current.has(square)}
-          squareWidth={squareWidth}
-        />
-      );
+      const baseHtml = PIECE_SVGS[code];
+      out[code] = ({ squareWidth, square }) => {
+        const override = overridesRef.current[square];
+        const html = override ? PIECE_SVGS[code[0] + override.toUpperCase()] : baseHtml;
+        return (
+          <UpgradedPiece
+            html={html}
+            isUpgraded={glowRef.current.has(square)}
+            squareWidth={squareWidth}
+          />
+        );
+      };
     }
     return out;
-  }, [upgradedRef]);
+  }, [glowRef, overridesRef]);
 }

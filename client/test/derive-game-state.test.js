@@ -60,6 +60,23 @@ describe('deriveGameState', () => {
     assert.equal(g.opponent.name, 'Bob');
   });
 
+  it('defaults to the upgraded variant; glow follows the upgraded set', () => {
+    const g = deriveGameState({ color: 'w' }, { ...baseState, upgraded: ['a1'] });
+    assert.equal(g.variant, 'upgraded');
+    assert.deepEqual([...g.glowSquares], ['a1']);
+    assert.deepEqual(g.kingOverrides, {});
+  });
+
+  it('cannibal: glow + kingOverrides come from state.kingOverrides', () => {
+    const g = deriveGameState(
+      { color: 'w' },
+      { ...baseState, variant: 'cannibal', kingOverrides: { e1: 'n' } }
+    );
+    assert.equal(g.variant, 'cannibal');
+    assert.deepEqual(g.kingOverrides, { e1: 'n' });
+    assert.deepEqual([...g.glowSquares], ['e1']);
+  });
+
   it('passes status, result, history through', () => {
     const result = { result: 'white', reason: 'resignation' };
     const history = [{ kind: 'move', san: 'e4' }];

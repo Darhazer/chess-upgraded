@@ -4,7 +4,13 @@
 // checks against the authoritative RulesEngine.
 
 import Board from './vendor/board.js';
+import CannibalBoard from './cannibal-board.js';
 import { buildConfig, actionFromMove } from './variant.js';
+
+// Instantiate the right (sub)class of the variant engine for a board-config.
+function boardFor(cfg) {
+  return cfg.variant === 'cannibal' ? new CannibalBoard(cfg) : new Board(cfg);
+}
 
 // js-chess-engine accepts levels 0–4 (depth grows with the level; the engine
 // also auto-deepens one ply in the endgame). 2 is a "club player" feel and is
@@ -24,7 +30,7 @@ function clampLevel(level) {
 // there's nothing to play (game over / no legal action).
 export function chooseVariantAction(publicState, { level = DEFAULT_BOT_LEVEL } = {}) {
   const cfg = buildConfig(publicState);
-  const board = new Board(cfg);
+  const board = boardFor(cfg);
   const best = board.calculateAiMove(clampLevel(level)); // { from, to, score } | undefined
   if (!best) return null;
   return actionFromMove(best.from, best.to, cfg);
@@ -35,7 +41,7 @@ export function chooseVariantAction(publicState, { level = DEFAULT_BOT_LEVEL } =
 // moves the referee allows.
 export function listVariantActions(publicState) {
   const cfg = buildConfig(publicState);
-  const board = new Board(cfg);
+  const board = boardFor(cfg);
   const moves = board.getMoves();
   const out = [];
   for (const from in moves) {

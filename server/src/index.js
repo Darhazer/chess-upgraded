@@ -3,7 +3,7 @@ import http from 'http';
 import { pathToFileURL } from 'url';
 import cors from 'cors';
 import { Server } from 'socket.io';
-import { RoomStore } from './rooms.js';
+import { RoomStore, VARIANTS } from './rooms.js';
 import { chooseAction, BOT_COLOR } from './bot.js';
 
 const PORT = process.env.PORT || 3001;
@@ -51,6 +51,8 @@ const isNonEmptyString = (v) => typeof v === 'string' && v.length > 0;
 const isMoveLike = (v) => typeof v === 'string' || (typeof v === 'object' && v !== null && !Array.isArray(v));
 // Names are optional and untrusted: only accept a short string, else drop it.
 const sanitizeName = (v) => (typeof v === 'string' ? v.slice(0, 40) : undefined);
+// Variant is client-chosen and untrusted: fall back to the default otherwise.
+const sanitizeVariant = (v) => (VARIANTS.includes(v) ? v : 'upgraded');
 
 function attachSocket(socket, room, playerId) {
   socket.join(room.code);
@@ -206,9 +208,9 @@ io.on('connection', (socket) => {
   };
 
   onLobby('lobby:public', (payload, ack) => {
-    const { playerId, name } = payload || {};
+    const { playerId, name, variant } = payload || {};
     if (!isNonEmptyString(playerId)) return ack?.({ ok: false, error: 'playerId required' });
-    const room = store.findOrCreatePublic();
+    const room = store.findOrCreatePublic(sanitizeVariant(variant));
     // Idempotent matchmaking: if this player is already seated in the room
     // we picked (because their previous socket hasn't been swept yet),
     // treat it as a rejoin instead of a duplicate seat.
@@ -229,9 +231,9 @@ io.on('connection', (socket) => {
   });
 
   onLobby('lobby:bot', (payload, ack) => {
-    const { playerId, name } = payload || {};
+    const { playerId, name, variant } = payload || {};
     if (!isNonEmptyString(playerId)) return ack?.({ ok: false, error: 'playerId required' });
-    const room = store.createBotRoom();
+    const room = store.createBotRoom(sanitizeVariant(variant));
     const color = store.addPlayer(room, { socketId: socket.id, playerId, name: sanitizeName(name) });
     if (!color) return ack?.({ ok: false, error: 'room full' });
     store.addBot(room);
@@ -241,9 +243,9 @@ io.on('connection', (socket) => {
   });
 
   onLobby('lobby:create', (payload, ack) => {
-    const { playerId, name } = payload || {};
+    const { playerId, name, variant } = payload || {};
     if (!isNonEmptyString(playerId)) return ack?.({ ok: false, error: 'playerId required' });
-    const room = store.createRoom({ visibility: 'private' });
+    const room = store.createRoom({ visibility: 'private', variant: sanitizeVariant(variant) });
     const color = store.addPlayer(room, { socketId: socket.id, playerId, name: sanitizeName(name) });
     attachSocket(socket, room, playerId);
     ack?.({ ok: true, code: room.code, color });

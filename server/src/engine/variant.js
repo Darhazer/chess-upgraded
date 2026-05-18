@@ -57,12 +57,22 @@ export function customBonusTargets(board, piece, locationUpper) {
   return targets.map((t) => (collide.has(t) ? TELEPORT_PREFIX + t : t));
 }
 
-// Build the engine's board-config from a RulesEngine.publicState()-shaped
-// object ({ fen, upgraded:[lowerSquares] }).
+// Build the engine's board-config from an engine publicState()-shaped object
+// ({ fen, variant, upgraded:[lowerSquares], kingOverrides:{ lowerSquare: type } }).
 export function buildConfig(publicState) {
   const cfg = getJSONfromFEN(publicState.fen);
+  cfg.variant = publicState.variant || 'upgraded';
   cfg.upgraded = {};
   for (const sq of publicState.upgraded || []) cfg.upgraded[sq.toUpperCase()] = true;
+  if (cfg.variant === 'cannibal') {
+    // The FEN keeps a cannibal king as a plain 'k'; its movement-type rides
+    // alongside in kingOverrides. Default both kings to normal-king movement.
+    cfg.kingType = { white: 'k', black: 'k' };
+    for (const [sq, type] of Object.entries(publicState.kingOverrides || {})) {
+      const piece = cfg.pieces[sq.toUpperCase()];
+      if (piece) cfg.kingType[piece === piece.toUpperCase() ? 'white' : 'black'] = type;
+    }
+  }
   return cfg;
 }
 

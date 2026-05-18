@@ -1,17 +1,26 @@
 // Forked from js-chess-engine v1.0.3 by Josef Jadrny (MIT — see ./LICENSE).
 //
-// Modifications for the "upgrade" chess variant (see shared/upgrade-rules.js
-// and server/src/rules-engine.js — the latter is the authoritative referee;
-// this fork is only the bot's brain). Changes vs. upstream, all tagged with a
-// `// VARIANT:` comment below:
-//   - `configuration` carries `upgraded` ({ SQUARE: true });
-//     `getTestBoard`/`getMoves` copy it so it survives the per-node board
-//     clones the search makes.
-//   - `getPieceMoves` adds the move-only bonus moves an upgraded piece gains
-//     (patterns come from shared/upgrade-rules.js via ../variant.js).
-//   - `move` transfers the upgrade flag across moves/captures/castling, drops
-//     it on a no-capture promotion, and auto-upgrades the capturing piece.
+// Modifications for the chess variants this app hosts, all tagged with a
+// `// VARIANT:` comment below. `configuration.variant` selects the rule set
+// ('upgraded' | 'cannibal').
+//
+// "upgrade" variant (see shared/upgrade-rules.js; server/src/rules-engine.js is
+// its authoritative referee — for that variant this fork is only the bot brain):
+//   - `configuration` carries `upgraded` ({ SQUARE: true }).
+//   - `getPieceMoves` adds the move-only bonus moves an upgraded piece gains.
+//   - `move` transfers the upgrade flag and auto-upgrades the capturing piece.
 //   - `calculateScore` adds an upgraded-piece bonus.
+//
+// Extension points other variants subclass Board to override (kept generic
+// here so this file carries no variant-specific rules beyond "upgrade"):
+//   - `movementType(piece)` — the type a piece moves/attacks as.
+//   - `getKingMoves` — the king's moveset.
+//   - `playingKingCanCastle()` — whether the side to move may castle at all.
+//   - `onMoveApplied(...)` — a post-move hook for variant side effects.
+//   - clones go through `new this.constructor(...)`, so subclasses stay typed.
+//
+// `getTestBoard`/`getMoves` copy variant state so it survives the per-node
+// board clones the search makes.
 
 import {
     AI_LEVELS,
@@ -86,6 +95,11 @@ export default class Board {
         }
         // VARIANT: default the upgrade state if the caller didn't provide it.
         if (!this.configuration.upgraded) this.configuration.upgraded = {}
+        // VARIANT: which variant's rules apply. 'upgraded' is this fork's
+        // historical default and the only one whose rules live in this file;
+        // other variants subclass Board (see server/src/engine/cannibal-board.js)
+        // and override the extension points below.
+        if (!this.configuration.variant) this.configuration.variant = 'upgraded'
         this.history = []
     }
 
@@ -139,7 +153,7 @@ export default class Board {
             distance++
             const piece = this.getPiece(field)
             if (piece && this.getPieceColor(piece) === enemyColor &&
-                (this.isRook(piece) || this.isQueen(piece) || (this.isKing(piece) && distance === 1))) {
+                (this.attacksOrthogonal(piece) || (this.attacksAsKing(piece) && distance === 1))) {
                 isUnderAttack = true
             }
             if (piece) break
@@ -152,7 +166,7 @@ export default class Board {
             distance++
             const piece = this.getPiece(field)
             if (piece && this.getPieceColor(piece) === enemyColor &&
-                (this.isRook(piece) || this.isQueen(piece) || (this.isKing(piece) && distance === 1))) {
+                (this.attacksOrthogonal(piece) || (this.attacksAsKing(piece) && distance === 1))) {
                 isUnderAttack = true
             }
             if (piece) break
@@ -165,7 +179,7 @@ export default class Board {
             distance++
             const piece = this.getPiece(field)
             if (piece && this.getPieceColor(piece) === enemyColor &&
-                (this.isRook(piece) || this.isQueen(piece) || (this.isKing(piece) && distance === 1))) {
+                (this.attacksOrthogonal(piece) || (this.attacksAsKing(piece) && distance === 1))) {
                 isUnderAttack = true
             }
             if (piece) break
@@ -178,7 +192,7 @@ export default class Board {
             distance++
             const piece = this.getPiece(field)
             if (piece && this.getPieceColor(piece) === enemyColor &&
-                (this.isRook(piece) || this.isQueen(piece) || (this.isKing(piece) && distance === 1))) {
+                (this.attacksOrthogonal(piece) || (this.attacksAsKing(piece) && distance === 1))) {
                 isUnderAttack = true
             }
             if (piece) break
@@ -191,8 +205,8 @@ export default class Board {
             distance++
             const piece = this.getPiece(field)
             if (piece && this.getPieceColor(piece) === enemyColor &&
-                (this.isBishop(piece) || this.isQueen(piece) ||
-                 (distance === 1 && (this.isKing(piece) || this.isPawn(piece))))) {
+                (this.attacksDiagonal(piece) ||
+                 (distance === 1 && (this.attacksAsKing(piece) || this.attacksAsPawn(piece))))) {
                 isUnderAttack = true
             }
             if (piece) break
@@ -205,8 +219,8 @@ export default class Board {
             distance++
             const piece = this.getPiece(field)
             if (piece && this.getPieceColor(piece) === enemyColor &&
-                (this.isBishop(piece) || this.isQueen(piece) ||
-                 (distance === 1 && (this.isKing(piece) || this.isPawn(piece))))) {
+                (this.attacksDiagonal(piece) ||
+                 (distance === 1 && (this.attacksAsKing(piece) || this.attacksAsPawn(piece))))) {
                 isUnderAttack = true
             }
             if (piece) break
@@ -219,7 +233,7 @@ export default class Board {
             distance++
             const piece = this.getPiece(field)
             if (piece && this.getPieceColor(piece) === enemyColor &&
-                (this.isBishop(piece) || this.isQueen(piece) || (this.isKing(piece) && distance === 1))) {
+                (this.attacksDiagonal(piece) || (this.attacksAsKing(piece) && distance === 1))) {
                 isUnderAttack = true
             }
             if (piece) break
@@ -232,7 +246,7 @@ export default class Board {
             distance++
             const piece = this.getPiece(field)
             if (piece && this.getPieceColor(piece) === enemyColor &&
-                (this.isBishop(piece) || this.isQueen(piece) || (this.isKing(piece) && distance === 1))) {
+                (this.attacksDiagonal(piece) || (this.attacksAsKing(piece) && distance === 1))) {
                 isUnderAttack = true
             }
             if (piece) break
@@ -240,42 +254,42 @@ export default class Board {
 
         field = upRightUp(pieceLocation)
         let piece = this.getPiece(field)
-        if (piece && this.getPieceColor(piece) === enemyColor && this.isKnight(piece)) {
+        if (piece && this.getPieceColor(piece) === enemyColor && this.attacksAsKnight(piece)) {
             isUnderAttack = true
         }
         field = upRightRight(pieceLocation)
         piece = this.getPiece(field)
-        if (piece && this.getPieceColor(piece) === enemyColor && this.isKnight(piece)) {
+        if (piece && this.getPieceColor(piece) === enemyColor && this.attacksAsKnight(piece)) {
             isUnderAttack = true
         }
         field = upLeftLeft(pieceLocation)
         piece = this.getPiece(field)
-        if (piece && this.getPieceColor(piece) === enemyColor && this.isKnight(piece)) {
+        if (piece && this.getPieceColor(piece) === enemyColor && this.attacksAsKnight(piece)) {
             isUnderAttack = true
         }
         field = upLeftUp(pieceLocation)
         piece = this.getPiece(field)
-        if (piece && this.getPieceColor(piece) === enemyColor && this.isKnight(piece)) {
+        if (piece && this.getPieceColor(piece) === enemyColor && this.attacksAsKnight(piece)) {
             isUnderAttack = true
         }
         field = downLeftDown(pieceLocation)
         piece = this.getPiece(field)
-        if (piece && this.getPieceColor(piece) === enemyColor && this.isKnight(piece)) {
+        if (piece && this.getPieceColor(piece) === enemyColor && this.attacksAsKnight(piece)) {
             isUnderAttack = true
         }
         field = downLeftLeft(pieceLocation)
         piece = this.getPiece(field)
-        if (piece && this.getPieceColor(piece) === enemyColor && this.isKnight(piece)) {
+        if (piece && this.getPieceColor(piece) === enemyColor && this.attacksAsKnight(piece)) {
             isUnderAttack = true
         }
         field = downRightDown(pieceLocation)
         piece = this.getPiece(field)
-        if (piece && this.getPieceColor(piece) === enemyColor && this.isKnight(piece)) {
+        if (piece && this.getPieceColor(piece) === enemyColor && this.attacksAsKnight(piece)) {
             isUnderAttack = true
         }
         field = downRightRight(pieceLocation)
         piece = this.getPiece(field)
-        if (piece && this.getPieceColor(piece) === enemyColor && this.isKnight(piece)) {
+        if (piece && this.getPieceColor(piece) === enemyColor && this.attacksAsKnight(piece)) {
             isUnderAttack = true
         }
 
@@ -345,8 +359,15 @@ export default class Board {
                     turn: this.configuration.turn,
                     enPassant: this.configuration.enPassant,
                     upgraded: Object.assign({}, this.configuration.upgraded),
+                    // VARIANT: carry the variant tag + any subclass king state.
+                    variant: this.configuration.variant,
+                    kingType: this.configuration.kingType
+                        ? Object.assign({}, this.configuration.kingType)
+                        : undefined,
                 }
-                const testBoard = new Board(testConfiguration)
+                // VARIANT: `this.constructor` keeps the probe board the same
+                // (sub)class, so a subclass's rule overrides apply mid-search.
+                const testBoard = new this.constructor(testConfiguration)
                 testBoard.move(from, to)
                 const kingSafe =
                     (this.isPlayingWhite() && !testBoard.isAttackingKing(COLORS.BLACK)) ||
@@ -361,7 +382,7 @@ export default class Board {
                 // king *teleport* is a custom move there, filtered by the
                 // variant-aware check instead (already handled by kingSafe).
                 const moverPiece = this.getPiece(from)
-                if (moverPiece && this.isKing(moverPiece)) {
+                if (moverPiece && this.isKing(moverPiece) && this.configuration.variant === 'upgraded') {
                     const isBonusKingMove = to[0] === TELEPORT_PREFIX || squareDistance(from, to) >= 2
                     if (!isBonusKingMove && this.isStandardPawnAttacked(to, this.getNonPlayingColor())) return
                 }
@@ -383,7 +404,20 @@ export default class Board {
         return moves
     }
 
+    // VARIANT extension point: whether the side to move may castle at all.
+    // Subclasses override this (e.g. a cannibalised king can no longer castle).
+    playingKingCanCastle () {
+        return true
+    }
+
+    // VARIANT extension point: invoked by `move()` once the piece has been
+    // relocated (and any auto-queen / en-passant capture resolved), before the
+    // turn flips. No-op here; subclasses use it for variant side effects such
+    // as the cannibal capture-transform. `mover` is the pre-move piece char.
+    onMoveApplied (/* { from, to, mover, captured, enPassantCapture, promoted, movingColor } */) {}
+
     isLeftCastlingPossible (enemyAttackingFields) {
+        if (!this.playingKingCanCastle()) return false
         if (this.isPlayingWhite() && !this.configuration.castling.whiteLong) return false
         if (this.isPlayingBlack() && !this.configuration.castling.blackLong) return false
 
@@ -405,6 +439,7 @@ export default class Board {
     }
 
     isRightCastlingPossible (enemyAttackingFields) {
+        if (!this.playingKingCanCastle()) return false
         if (this.isPlayingWhite() && !this.configuration.castling.whiteShort) return false
         if (this.isPlayingBlack() && !this.configuration.castling.blackShort) return false
 
@@ -716,6 +751,39 @@ export default class Board {
         return COLORS.BLACK
     }
 
+    // VARIANT extension point: the piece-type a piece *moves and attacks as*.
+    // Here it is simply the piece's own type; subclasses override it (e.g. a
+    // cannibal king keeps its 'k' board char but moves as what it cannibalised).
+    movementType (piece) {
+        return piece.toLowerCase()
+    }
+
+    // VARIANT: attack predicates keyed on `movementType`, so a subclass that
+    // overrides `movementType` (e.g. a cannibal king) changes what a piece
+    // attacks as. With the default `movementType` these reduce to the piece's
+    // own type and behave exactly as the inline checks did.
+    attacksOrthogonal (piece) {
+        const mt = this.movementType(piece)
+        return mt === 'r' || mt === 'q'
+    }
+
+    attacksDiagonal (piece) {
+        const mt = this.movementType(piece)
+        return mt === 'b' || mt === 'q'
+    }
+
+    attacksAsKing (piece) {
+        return this.movementType(piece) === 'k'
+    }
+
+    attacksAsPawn (piece) {
+        return this.movementType(piece) === 'p'
+    }
+
+    attacksAsKnight (piece) {
+        return this.movementType(piece) === 'n'
+    }
+
     getPieceOnLocationColor (location) {
         const piece = this.getPiece(location)
         if (!piece) return null
@@ -804,6 +872,10 @@ export default class Board {
         const movingColor = this.getPlayingColor()
         const wasUpgraded = !!this.configuration.upgraded[from]
         const isPawnMove = this.isPawn(chessmanFrom)
+        // An E1->C1/G1 king step is a castle only while the king may still
+        // castle; a subclass (e.g. a cannibalised king) can refuse, leaving it
+        // an ordinary slide instead.
+        const castlingMoveAllowed = this.playingKingCanCastle()
 
         Object.assign(this.configuration.pieces, { [to]: chessmanFrom })
         delete this.configuration.pieces[from]
@@ -824,28 +896,42 @@ export default class Board {
             enPassantCapture = true
         }
 
-        // VARIANT: upgrade-flag bookkeeping. A captured piece (incl. en
-        // passant, above) loses its flag; the mover carries its flag to the
+        // VARIANT (upgrade): upgrade-flag bookkeeping. A captured piece (incl.
+        // en passant, above) loses its flag; the mover carries its flag to the
         // destination — unless it just promoted with no capture (the piece
         // is a queen now). On any capture, the mover is auto-upgraded —
         // except a K/Q capturing an unupgraded pawn (value-floor rule).
-        const capturedWasUpgraded = chessmanTo && !!this.configuration.upgraded[to]
-        if (chessmanTo) delete this.configuration.upgraded[to]
-        if (wasUpgraded) {
-            delete this.configuration.upgraded[from]
+        if (this.configuration.variant === 'upgraded') {
+            const capturedWasUpgraded = chessmanTo && !!this.configuration.upgraded[to]
+            if (chessmanTo) delete this.configuration.upgraded[to]
+            if (wasUpgraded) {
+                delete this.configuration.upgraded[from]
+            }
+            const captureHappened = !!chessmanTo || enPassantCapture
+            const moverIsKingOrQueen =
+                chessmanFrom === 'K' || chessmanFrom === 'k' ||
+                chessmanFrom === 'Q' || chessmanFrom === 'q'
+            const cheapCapture =
+                captureHappened &&
+                moverIsKingOrQueen &&
+                (chessmanTo === 'P' || chessmanTo === 'p') &&
+                !capturedWasUpgraded
+            if ((captureHappened && !cheapCapture) || (wasUpgraded && !promoted)) {
+                this.configuration.upgraded[to] = true
+            }
         }
-        const captureHappened = !!chessmanTo || enPassantCapture
-        const moverIsKingOrQueen =
-            chessmanFrom === 'K' || chessmanFrom === 'k' ||
-            chessmanFrom === 'Q' || chessmanFrom === 'q'
-        const cheapCapture =
-            captureHappened &&
-            moverIsKingOrQueen &&
-            (chessmanTo === 'P' || chessmanTo === 'p') &&
-            !capturedWasUpgraded
-        if ((captureHappened && !cheapCapture) || (wasUpgraded && !promoted)) {
-            this.configuration.upgraded[to] = true
-        }
+
+        // VARIANT extension point: variant-specific side effects of the move
+        // (e.g. cannibal capture-transform). No-op in the base engine.
+        this.onMoveApplied({
+            from,
+            to,
+            mover: chessmanFrom,
+            captured: chessmanTo || null,
+            enPassantCapture,
+            promoted,
+            movingColor,
+        })
 
         // pawn double-push -> en passant target
         if (isPawnMove && !promoted &&
@@ -875,11 +961,22 @@ export default class Board {
         if (from === 'H8') {
             Object.assign(this.configuration.castling, { blackShort: false })
         }
+        // Castling - disabling when a corner rook is captured / replaced. The
+        // upstream engine relied on the `getPiece(corner) === 'R'` check in
+        // isLeft/RightCastlingPossible; clearing the right outright also keeps
+        // the cannibal "original rooks only" rule honest (a piece that *became*
+        // a rook on a corner must not inherit a castling right).
+        if (to === 'A1') Object.assign(this.configuration.castling, { whiteLong: false })
+        if (to === 'H1') Object.assign(this.configuration.castling, { whiteShort: false })
+        if (to === 'A8') Object.assign(this.configuration.castling, { blackLong: false })
+        if (to === 'H8') Object.assign(this.configuration.castling, { blackShort: false })
 
         // Castling - rook is moving too. The recursive rook move performs
         // the turn flip once.
-        // VARIANT: ...unless this was a king *teleport* onto a castle square.
-        if (this.isKing(chessmanFrom) && !isKingTeleport) {
+        // VARIANT: ...unless this was a king *teleport* onto a castle square,
+        // or a subclass king that may no longer castle (then E1->C1/G1 is a
+        // plain slide).
+        if (this.isKing(chessmanFrom) && !isKingTeleport && castlingMoveAllowed) {
             if (from === 'E1' && to === 'C1') return this.move('A1', 'D1')
             if (from === 'E8' && to === 'C8') return this.move('A8', 'D8')
             if (from === 'E1' && to === 'G1') return this.move('H1', 'F1')
@@ -971,11 +1068,15 @@ export default class Board {
             castling: Object.assign({}, this.configuration.castling),
             turn: this.configuration.turn,
             enPassant: this.configuration.enPassant,
-            // VARIANT: the search clones the board per node — carry the upgrade
+            // VARIANT: the search clones the board per node — carry the variant
             // state along or it would be silently lost mid-search.
             upgraded: Object.assign({}, this.configuration.upgraded),
+            variant: this.configuration.variant,
+            kingType: this.configuration.kingType
+                ? Object.assign({}, this.configuration.kingType)
+                : undefined,
         }
-        return new Board(testConfiguration)
+        return new this.constructor(testConfiguration)
     }
 
     testMoveScores (playingPlayerColor, level, capture, initialScore, move, depth = 1) {
