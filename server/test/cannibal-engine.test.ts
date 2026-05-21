@@ -215,6 +215,6 @@ describe('cannibal: bot / referee parity', () => {
     });
     const action = await chooseAction(e);
     assert.ok(action, 'bot proposed an action');
-    assert.equal(e.clone().applyAction(action!).ok, true);
+    assert.equal(e.clone().applyAction(action as never).ok, true);
   });
 });

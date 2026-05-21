@@ -10,8 +10,13 @@ import type { MoveAction, PublicState } from './variant.js';
 import type { BoardConfiguration } from './vendor/const.js';
 
 // Instantiate the right (sub)class of the variant engine for a board-config.
+// Chess RPG plays standard chess at the move level — no upgraded custom moves,
+// no cannibal mutation — so the vendored Board (with an empty `upgraded` map)
+// is exactly the right brain for picking moves there. Build and upgrade
+// decisions are made above this layer in ../rpg-bot.ts.
 function boardFor(cfg: BoardConfiguration): Board {
-  return cfg.variant === 'cannibal' ? new CannibalBoard(cfg) : new Board(cfg);
+  if (cfg.variant === 'cannibal') return new CannibalBoard(cfg);
+  return new Board(cfg);
 }
 
 // js-chess-engine accepts levels 0–4 (depth grows with the level; the engine

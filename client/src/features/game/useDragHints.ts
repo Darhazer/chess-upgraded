@@ -10,6 +10,7 @@ interface DragHintsInput {
   variant: string;
   upgradedSet: Set<string>;
   kingOverrides: Record<string, string>;
+  lockedSquare: string | null;
 }
 
 export interface DragHintsApi {
@@ -30,9 +31,9 @@ export interface DragHintsApi {
 // 2. Updating React state synchronously inside the drag-init path makes
 //    react-dnd unhappy (re-renders the in-flight drag). We defer the
 //    set/clear with setTimeout(0) to dodge that.
-export function useDragHints({ myTurn, color, local, variant, upgradedSet, kingOverrides }: DragHintsInput): DragHintsApi {
+export function useDragHints({ myTurn, color, local, variant, upgradedSet, kingOverrides, lockedSquare }: DragHintsInput): DragHintsApi {
   const [hints, setHints] = useState<Set<string> | null>(null);
-  const stateRef = useLatest({ myTurn, color, local, variant, upgradedSet, kingOverrides });
+  const stateRef = useLatest({ myTurn, color, local, variant, upgradedSet, kingOverrides, lockedSquare });
 
   const onDragBegin = useCallback((_piece: string, sourceSquare: string) => {
     const s = stateRef.current;
@@ -43,6 +44,7 @@ export function useDragHints({ myTurn, color, local, variant, upgradedSet, kingO
       variant: s.variant,
       upgradedSet: s.upgradedSet,
       kingOverrides: s.kingOverrides,
+      lockedSquare: s.lockedSquare,
     });
     setTimeout(() => setHints(targets), 0);
   }, [stateRef]);

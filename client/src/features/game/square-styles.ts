@@ -31,6 +31,13 @@ export function selectedSquareLayer(square: string | null | undefined): Record<s
   return { [square]: { background: 'rgba(106, 169, 255, 0.35)' } };
 }
 
+// Chess RPG: highlights the square holding a piece that was just built this
+// turn — that piece is locked from moving until the next turn.
+export function lockedSquareLayer(square: string | null | undefined): Record<string, CSSProperties> | null {
+  if (!square) return null;
+  return { [square]: { boxShadow: 'inset 0 0 0 3px rgba(255, 99, 71, 0.7)' } };
+}
+
 export function mergeSquareStyles(...layers: StyleLayer[]): Record<string, CSSProperties> {
   const out: Record<string, CSSProperties> = {};
   for (const layer of layers) {

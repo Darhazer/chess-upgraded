@@ -1,4 +1,5 @@
 import type { SavedRoom } from '../../services/player-id.js';
+import type { SlotDescriptor, PieceInfo } from '../../../../shared/chess-rpg-rules.js';
 
 export interface ServerPlayer {
   color: 'w' | 'b';
@@ -14,7 +15,11 @@ export interface ServerRoomState {
   kingOverrides?: Record<string, string>;
   players?: ServerPlayer[];
   result?: { result: string; reason: string } | null;
-  history?: Array<{ kind?: string; san: string }>;
+  history?: Array<{ kind?: string; color?: 'w' | 'b'; san: string; from?: string; to?: string }>;
+  material?: { w: number; b: number };
+  offBoard?: { w: SlotDescriptor[]; b: SlotDescriptor[] };
+  pieces?: Record<string, PieceInfo>;
+  lockedSquare?: string | null;
 }
 
 export interface DerivedGameState {
@@ -31,6 +36,10 @@ export interface DerivedGameState {
   status: ServerRoomState['status'];
   result: ServerRoomState['result'];
   history: NonNullable<ServerRoomState['history']>;
+  material: { w: number; b: number };
+  offBoard: { w: SlotDescriptor[]; b: SlotDescriptor[] };
+  pieces: Record<string, PieceInfo>;
+  lockedSquare: string | null;
 }
 
 // Pure derivation of view-state from the raw room/server-broadcast pair.
@@ -62,5 +71,9 @@ export function deriveGameState(room: SavedRoom, state: ServerRoomState | null |
     status: state?.status,
     result: state?.result,
     history: state?.history || [],
+    material: state?.material || { w: 0, b: 0 },
+    offBoard: state?.offBoard || { w: [], b: [] },
+    pieces: state?.pieces || {},
+    lockedSquare: state?.lockedSquare ?? null,
   };
 }

@@ -34,7 +34,11 @@ function ResultBanner({ result }: { result: Result }) {
   );
 }
 
-const variantName = (v: string): string => (v === 'cannibal' ? 'Cannibal Chess' : 'Chess Upgraded');
+const variantName = (v: string): string => {
+  if (v === 'cannibal') return 'Cannibal Chess';
+  if (v === 'rpg') return 'Chess RPG';
+  return 'Chess Upgraded';
+};
 
 interface SidebarProps {
   room: SavedRoom;

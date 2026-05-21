@@ -5,8 +5,10 @@ import { useGameState } from '../features/game/useGameState.js';
 import { useDragHints } from '../features/game/useDragHints.js';
 import { useTapMove } from '../features/game/useTapMove.js';
 import { useCustomPieces } from '../features/game/useCustomPieces.js';
+import { useActionAnimations } from '../features/game/useActionAnimations.js';
 import {
   dragHintLayer,
+  lockedSquareLayer,
   mergeSquareStyles,
   selectedSquareLayer,
   upgradedGlowLayer,
@@ -14,6 +16,8 @@ import {
 import { useLatest } from '../hooks/useLatest.js';
 import Sidebar from './Sidebar.js';
 import Board from './Board.js';
+import OffBoardPanel from './OffBoardPanel.js';
+import SelectedPiecePanel from './SelectedPiecePanel.js';
 import type { SavedRoom } from '../services/player-id.js';
 import type { ServerRoomState } from '../features/game/derive-game-state.js';
 
@@ -76,6 +80,7 @@ export default function Game({ room, state, onLeave }: GameProps) {
     variant: g.variant,
     upgradedSet: g.upgradedSet,
     kingOverrides: g.kingOverrides,
+    lockedSquare: g.lockedSquare,
   });
 
   const tap = useTapMove({
@@ -85,6 +90,7 @@ export default function Game({ room, state, onLeave }: GameProps) {
     variant: g.variant,
     upgradedSet: g.upgradedSet,
     kingOverrides: g.kingOverrides,
+    lockedSquare: g.lockedSquare,
     submitMove,
     selected,
     setSelected,
@@ -130,14 +136,37 @@ export default function Game({ room, state, onLeave }: GameProps) {
       selectedSquareLayer(visibleSelected),
       visibleTargets && dragHintLayer(visibleTargets),
       visibleDragHints && dragHintLayer(visibleDragHints),
+      lockedSquareLayer(g.lockedSquare),
     ),
-    [g.glowSquares, visibleDragHints, visibleSelected, visibleTargets],
+    [g.glowSquares, g.lockedSquare, visibleDragHints, visibleSelected, visibleTargets],
   );
 
-  const customPieces = useCustomPieces(g.glowSquares, g.kingOverrides);
+  const animations = useActionAnimations(g.history);
+  const customPieces = useCustomPieces(g.glowSquares, g.kingOverrides, animations);
   const boardWidth = useBoardWidth();
 
   const resign = useCallback(() => gameApi.resign(socket, room.code), [socket, room.code]);
+
+  const build = useCallback(
+    (slotId: string) => {
+      setMoveError('');
+      void gameApi.build(socket, room.code, slotId).then((res) => {
+        if (!res.ok) setMoveError(res.error || 'cannot build');
+      });
+    },
+    [socket, room.code],
+  );
+
+  const upgrade = useCallback(
+    (slotId: string, to: string) => {
+      setMoveError('');
+      void gameApi.upgrade(socket, room.code, slotId, to).then((res) => {
+        if (!res.ok) setMoveError(res.error || 'cannot upgrade');
+        else setSelected(null);
+      });
+    },
+    [socket, room.code],
+  );
 
   return (
     <div className="game">
@@ -154,19 +183,40 @@ export default function Game({ room, state, onLeave }: GameProps) {
         moveError={moveError}
         history={g.history}
       />
-      <Board
-        fen={g.fen}
-        orientation={g.orientation}
-        myTurn={g.myTurn}
-        onPieceDrop={onPieceDrop}
-        onPieceDragBegin={onDragBegin}
-        onPieceDragEnd={drag.onDragEnd}
-        onSquareClick={onSquareClick}
-        isDraggablePiece={isDraggablePiece}
-        customSquareStyles={customSquareStyles}
-        customPieces={customPieces}
-        width={boardWidth}
-      />
+      <div className="board-column">
+        <Board
+          fen={g.fen}
+          orientation={g.orientation}
+          myTurn={g.myTurn}
+          onPieceDrop={onPieceDrop}
+          onPieceDragBegin={onDragBegin}
+          onPieceDragEnd={drag.onDragEnd}
+          onSquareClick={onSquareClick}
+          isDraggablePiece={isDraggablePiece}
+          customSquareStyles={customSquareStyles}
+          customPieces={customPieces}
+          width={boardWidth}
+        />
+        {g.variant === 'rpg' && (
+          <>
+            <SelectedPiecePanel
+              square={visibleSelected}
+              info={visibleSelected ? g.pieces[visibleSelected] : undefined}
+              myColor={room.color}
+              myTurn={g.myTurn}
+              canAct={!g.lockedSquare}
+              onUpgrade={upgrade}
+            />
+            <OffBoardPanel
+              myColor={room.color}
+              myTurn={g.myTurn}
+              material={g.material}
+              offBoard={g.offBoard}
+              onBuild={build}
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 }

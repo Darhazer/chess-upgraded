@@ -42,6 +42,7 @@ export default function Lobby({ onJoined }: LobbyProps) {
         <select value={variant} onChange={(e) => setVariant(e.target.value)}>
           <option value="upgraded">Chess Upgraded</option>
           <option value="cannibal">Cannibal Chess</option>
+          <option value="rpg">Chess RPG</option>
         </select>
       </label>
 

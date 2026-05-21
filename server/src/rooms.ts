@@ -1,18 +1,23 @@
 import { customAlphabet } from 'nanoid';
 import { RulesEngine } from './rules-engine.js';
 import { CannibalEngine } from './cannibal-engine.js';
+import { ChessRpgEngine } from './chess-rpg-engine.js';
+import type { SlotDescriptor, PieceInfo } from '../../shared/chess-rpg-rules.js';
 
 const codeId = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6);
 
 // Supported game variants. 'upgraded' is the default chess-upgraded rule set;
-// 'cannibal' is Cannibal Chess. Each maps to its own authoritative engine.
-export const VARIANTS = ['upgraded', 'cannibal'] as const;
+// 'cannibal' is Cannibal Chess; 'rpg' is Chess RPG (build pieces with
+// earned material). Each maps to its own authoritative engine.
+export const VARIANTS = ['upgraded', 'cannibal', 'rpg'] as const;
 export type Variant = (typeof VARIANTS)[number];
 
-export type Engine = RulesEngine | CannibalEngine;
+export type Engine = RulesEngine | CannibalEngine | ChessRpgEngine;
 
 function engineForVariant(variant: Variant): Engine {
-  return variant === 'cannibal' ? new CannibalEngine() : new RulesEngine();
+  if (variant === 'cannibal') return new CannibalEngine();
+  if (variant === 'rpg') return new ChessRpgEngine();
+  return new RulesEngine();
 }
 
 export type Visibility = 'public' | 'private' | 'bot';
@@ -152,6 +157,10 @@ export class RoomStore {
       history: unknown[];
       result: RoomResult | null;
       kingOverrides?: Record<string, string>;
+      material?: { w: number; b: number };
+      offBoard?: { w: SlotDescriptor[]; b: SlotDescriptor[] };
+      pieces?: Record<string, PieceInfo>;
+      lockedSquare?: string | null;
     };
     return {
       code: room.code,
@@ -166,6 +175,10 @@ export class RoomStore {
       history: game.history,
       upgraded: game.upgraded,
       kingOverrides: game.kingOverrides,
+      material: game.material,
+      offBoard: game.offBoard,
+      pieces: game.pieces,
+      lockedSquare: game.lockedSquare,
     };
   }
 }

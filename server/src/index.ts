@@ -4,7 +4,8 @@ import { pathToFileURL } from 'url';
 import cors from 'cors';
 import { Server, type Socket } from 'socket.io';
 import { RoomStore, VARIANTS, type Room, type Player, type Variant } from './rooms.js';
-import { chooseAction, BOT_COLOR } from './bot.js';
+import { chooseAction, applyBotAction, isTurnEndingAction, BOT_COLOR } from './bot.js';
+import { ChessRpgEngine } from './chess-rpg-engine.js';
 
 const PORT = process.env.PORT || 3001;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
@@ -77,38 +78,80 @@ function applyTerminal(room: Room): boolean {
   return status.over;
 }
 
+// Hard ceiling on a single bot turn. A Chess RPG turn is at most one ability
+// + one move, but anything that lets the loop spin (a broken `applyBotAction`
+// that returns ok without flipping turn, etc.) must time out rather than
+// freeze the room. Lifted to comfortably cover the post-ability animation
+// pause below (build = 3s, upgrade = 2s) plus a multi-second move search.
+const BOT_TURN_MAX_MS = 12_000;
+
+// After a bot ability action (build/upgrade) we emit the intermediate state
+// and pause so the client can play its full piece-appearance animation
+// before the move arrives. The numbers match the keyframe durations in
+// client/src/styles.css. The pause runs *between* server state emissions —
+// without it, the client would see build + move in a single update and the
+// move would visually beat the animation.
+const BOT_BUILD_ANIM_MS = 3_000;
+const BOT_UPGRADE_ANIM_MS = 2_000;
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms).unref());
+
 function runBotIfNeeded(room: Room): void {
   if (room.mode !== 'bot' || room.status !== 'playing') return;
   if (room.engine.turn() !== BOT_COLOR) return;
   setImmediate(async () => {
     if (room.status !== 'playing' || room.engine.turn() !== BOT_COLOR) return;
     const startedAt = Date.now();
-    let action = null;
+    // A turn may take multiple actions (e.g. build then move for Chess RPG).
+    // Loop until the turn flips, the game ends, or something errors out. The
+    // bot's move call (chooseAction) goes to the worker pool; build/upgrade
+    // decisions are cheap and stay on this thread.
     try {
-      // Search runs in a worker (see engine/search-pool.js) — the await
-      // yields the loop, so other rooms keep moving while the bot thinks.
-      action = await chooseAction(room.engine);
+      while (room.status === 'playing' && room.engine.turn() === BOT_COLOR) {
+        if (Date.now() - startedAt > BOT_TURN_MAX_MS) {
+          console.warn('[bot] turn exceeded time budget; bailing');
+          break;
+        }
+        const action = await chooseAction(room.engine);
+        if (!action) break;
+        // The game could have ended (resign/disconnect) while we were thinking.
+        if (room.status !== 'playing' || room.engine.turn() !== BOT_COLOR) return;
+        // applyBotAction is the last unguarded thing on the bot path —
+        // a referee divergence must not become an uncaughtException that
+        // takes every room on this process down. Wrap in try/catch.
+        let result;
+        try {
+          result = applyBotAction(room.engine, action);
+        } catch (err) {
+          console.error('[bot] applying chosen action threw:', err);
+          break;
+        }
+        if (!result.ok) {
+          console.warn('[bot] referee rejected action; stopping turn.', 'reason=', result.reason);
+          break;
+        }
+        applyTerminal(room);
+        if (isTurnEndingAction(action)) break;
+        // Build/upgrade flips no turn — there is still a move coming. Emit
+        // the intermediate state now and hold long enough for the client's
+        // appearance animation to finish before applying (and emitting) the
+        // move. Without this the client would see one combined update where
+        // the piece appears and immediately moves away.
+        if (action.kind === 'build' || action.kind === 'upgrade') {
+          if (room.status !== 'playing') break;
+          emitRoomState(room);
+          await sleep(action.kind === 'build' ? BOT_BUILD_ANIM_MS : BOT_UPGRADE_ANIM_MS);
+          if (room.status !== 'playing' || room.engine.turn() !== BOT_COLOR) return;
+        }
+      }
     } catch (err) {
-      console.error('[bot] failed to choose a move:', (err as Error)?.message);
-      return;
+      console.error('[bot] turn loop failed:', (err as Error)?.message);
     }
-    // The game could have ended (resign/disconnect) while we were thinking.
-    if (room.status !== 'playing' || room.engine.turn() !== BOT_COLOR) return;
+    // Min-think pause applies once per turn, not per action — so a build +
+    // move doesn't double the perceived "thinking" time.
     const pause = Math.max(0, BOT_MIN_THINK_MS - (Date.now() - startedAt));
     const commit = () => {
-      // ...and could still end during the artificial think-pause below.
-      if (room.status !== 'playing' || room.engine.turn() !== BOT_COLOR) return;
-      // The action was dry-run validated in chooseAction, but applyAction is
-      // the last unguarded thing on the bot path — a referee divergence here
-      // must not become an uncaughtException that takes the whole process
-      // (and every other room) down. Drop the move; the room just stalls.
-      try {
-        if (action) room.engine.applyAction(action);
-        applyTerminal(room);
-      } catch (err) {
-        console.error('[bot] applying chosen move threw:', err);
-        return;
-      }
+      if (room.status !== 'playing' && !room.result) return;
       emitRoomState(room);
     };
     if (pause === 0) commit();
@@ -337,6 +380,51 @@ io.on('connection', (socket: Socket) => {
     ack?.({ ok: true });
     emitRoomState(room);
     runBotIfNeeded(room);
+  });
+
+  on('game:upgrade', (payload, ack) => {
+    const { code, slotId, to } = (payload || {}) as { code?: unknown; slotId?: unknown; to?: unknown };
+    if (!isNonEmptyString(code)) return ack?.({ ok: false, error: 'room not found' });
+    if (!isNonEmptyString(slotId)) return ack?.({ ok: false, error: 'invalid slot' });
+    if (!isNonEmptyString(to)) return ack?.({ ok: false, error: 'invalid upgrade target' });
+    const room = store.get(code);
+    if (!room) return ack?.({ ok: false, error: 'room not found' });
+    if (room.status !== 'playing') return ack?.({ ok: false, error: 'game not active' });
+    if (!(room.engine instanceof ChessRpgEngine)) {
+      return ack?.({ ok: false, error: 'upgrade not available in this variant' });
+    }
+
+    const player = playerForSocket(room, socket);
+    if (!player) return ack?.({ ok: false, error: 'not in room' });
+    if (player.color !== room.engine.turn()) return ack?.({ ok: false, error: 'not your turn' });
+
+    const result = room.engine.tryUpgrade(slotId, to);
+    if (!result.ok) return ack?.({ ok: false, error: result.reason });
+
+    ack?.({ ok: true });
+    emitRoomState(room);
+  });
+
+  on('game:build', (payload, ack) => {
+    const { code, slotId } = (payload || {}) as { code?: unknown; slotId?: unknown };
+    if (!isNonEmptyString(code)) return ack?.({ ok: false, error: 'room not found' });
+    if (!isNonEmptyString(slotId)) return ack?.({ ok: false, error: 'invalid slot' });
+    const room = store.get(code);
+    if (!room) return ack?.({ ok: false, error: 'room not found' });
+    if (room.status !== 'playing') return ack?.({ ok: false, error: 'game not active' });
+    if (!(room.engine instanceof ChessRpgEngine)) {
+      return ack?.({ ok: false, error: 'build not available in this variant' });
+    }
+
+    const player = playerForSocket(room, socket);
+    if (!player) return ack?.({ ok: false, error: 'not in room' });
+    if (player.color !== room.engine.turn()) return ack?.({ ok: false, error: 'not your turn' });
+
+    const result = room.engine.tryBuild(slotId);
+    if (!result.ok) return ack?.({ ok: false, error: result.reason });
+
+    ack?.({ ok: true });
+    emitRoomState(room);
   });
 
   on('game:resign', (payload) => {

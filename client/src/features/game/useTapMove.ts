@@ -10,6 +10,7 @@ interface TapMoveInput {
   variant: string;
   upgradedSet: Set<string>;
   kingOverrides: Record<string, string>;
+  lockedSquare: string | null;
   submitMove: (from: string, to: string) => void;
   selected: string | null;
   setSelected: (square: string | null) => void;
@@ -25,15 +26,15 @@ export interface TapMoveApi {
 // in tap-action.js; this hook just feeds React state into it. `selected`
 // is owned by the caller so drag can clear it without going through here.
 export function useTapMove({
-  myTurn, color, local, variant, upgradedSet, kingOverrides, submitMove, selected, setSelected,
+  myTurn, color, local, variant, upgradedSet, kingOverrides, lockedSquare, submitMove, selected, setSelected,
 }: TapMoveInput): TapMoveApi {
   const effectiveSelected = myTurn ? selected : null;
 
   const targets = useMemo<Set<string> | null>(
     () => (effectiveSelected
-      ? legalTargets(local as never, effectiveSelected, { variant, upgradedSet, kingOverrides })
+      ? legalTargets(local as never, effectiveSelected, { variant, upgradedSet, kingOverrides, lockedSquare })
       : null),
-    [effectiveSelected, local, variant, upgradedSet, kingOverrides],
+    [effectiveSelected, local, variant, upgradedSet, kingOverrides, lockedSquare],
   );
 
   const onSquareClick = useCallback(

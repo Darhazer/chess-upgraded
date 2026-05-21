@@ -173,7 +173,7 @@ describe('chooseAction (bot adapter)', () => {
       e.chess.load(fen);
       const a = await chooseAction(e, { botColor: e.turn() });
       assert.ok(a, `should produce an action for ${fen}`);
-      assert.equal(e.clone().applyAction(a!).ok, true, `referee must accept ${JSON.stringify(a)} for ${fen}`);
+      assert.equal(e.clone().applyAction(a as never).ok, true, `referee must accept ${JSON.stringify(a)} for ${fen}`);
     }
   });
 
@@ -181,7 +181,7 @@ describe('chooseAction (bot adapter)', () => {
     const e = new RulesEngine();
     e.chess.load('6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1'); // Ra8#
     const a = await chooseAction(e, { botColor: 'w' });
-    assert.equal(e.applyAction(a!).ok, true);
+    assert.equal(e.applyAction(a as never).ok, true);
     const s = e.status();
     assert.equal((s as { reason?: string }).reason, 'checkmate', `expected mate, chose ${JSON.stringify(a)}`);
   });

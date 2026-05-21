@@ -5,6 +5,7 @@ interface MoveTargetCtx {
   variant?: string;
   upgradedSet?: Set<string>;
   kingOverrides?: Record<string, string>;
+  lockedSquare?: string | null;
 }
 
 interface ChessJsLike extends ChessLike {
@@ -20,9 +21,11 @@ interface ChessJsLike extends ChessLike {
 // Hints are advisory — the server is authoritative — so slight imprecision
 // against an enemy cannibal king is acceptable.
 export function legalTargets(local: ChessJsLike, square: string, ctx: MoveTargetCtx = {}): Set<string> {
-  const { variant = 'upgraded', upgradedSet, kingOverrides } = ctx;
+  const { variant = 'upgraded', upgradedSet, kingOverrides, lockedSquare } = ctx;
   const piece = local.get(square);
   if (!piece) return new Set();
+  // Chess RPG: a piece built this turn is locked until the next turn.
+  if (lockedSquare && square === lockedSquare) return new Set();
   const targets = new Set<string>();
 
   if (variant === 'cannibal') {
