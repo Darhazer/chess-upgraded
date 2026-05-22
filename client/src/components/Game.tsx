@@ -47,10 +47,11 @@ function computeBoardWidth(): number {
 interface GameProps {
   room: SavedRoom;
   state: ServerRoomState | null;
+  connected: boolean;
   onLeave: () => void;
 }
 
-export default function Game({ room, state, onLeave }: GameProps) {
+export default function Game({ room, state, connected, onLeave }: GameProps) {
   const { socket } = useSocket();
   const g = useGameState(room, state);
   const [moveError, setMoveError] = useState('');
@@ -178,44 +179,51 @@ export default function Game({ room, state, onLeave }: GameProps) {
         me={g.me}
         opponent={g.opponent}
         myTurn={g.myTurn}
+        connected={connected}
         onResign={resign}
         onLeave={onLeave}
         moveError={moveError}
         history={g.history}
       />
       <div className="board-column">
-        <Board
-          fen={g.fen}
-          orientation={g.orientation}
-          myTurn={g.myTurn}
-          onPieceDrop={onPieceDrop}
-          onPieceDragBegin={onDragBegin}
-          onPieceDragEnd={drag.onDragEnd}
-          onSquareClick={onSquareClick}
-          isDraggablePiece={isDraggablePiece}
-          customSquareStyles={customSquareStyles}
-          customPieces={customPieces}
-          width={boardWidth}
-        />
-        {g.variant === 'rpg' && (
-          <>
-            <SelectedPiecePanel
-              square={visibleSelected}
-              info={visibleSelected ? g.pieces[visibleSelected] : undefined}
-              myColor={room.color}
+        <div className="board-row">
+          <div className="board-stack" style={{ width: boardWidth }}>
+            <Board
+              fen={g.fen}
+              orientation={g.orientation}
               myTurn={g.myTurn}
-              canAct={!g.lockedSquare}
-              onUpgrade={upgrade}
+              onPieceDrop={onPieceDrop}
+              onPieceDragBegin={onDragBegin}
+              onPieceDragEnd={drag.onDragEnd}
+              onSquareClick={onSquareClick}
+              isDraggablePiece={isDraggablePiece}
+              customSquareStyles={customSquareStyles}
+              customPieces={customPieces}
+              width={boardWidth}
             />
-            <OffBoardPanel
-              myColor={room.color}
-              myTurn={g.myTurn}
-              material={g.material}
-              offBoard={g.offBoard}
-              onBuild={build}
-            />
-          </>
-        )}
+            {g.variant === 'rpg' && (
+              <OffBoardPanel
+                myColor={room.color}
+                myTurn={g.myTurn}
+                material={g.material}
+                offBoard={g.offBoard}
+                onBuild={build}
+              />
+            )}
+          </div>
+          {g.variant === 'rpg' && (
+            <div className="selected-piece-slot">
+              <SelectedPiecePanel
+                square={visibleSelected}
+                info={visibleSelected ? g.pieces[visibleSelected] : undefined}
+                myColor={room.color}
+                myTurn={g.myTurn}
+                canAct={!g.lockedSquare}
+                onUpgrade={upgrade}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

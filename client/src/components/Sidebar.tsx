@@ -48,6 +48,7 @@ interface SidebarProps {
   me: ServerPlayer | undefined;
   opponent: ServerPlayer | undefined;
   myTurn: boolean;
+  connected: boolean;
   onResign: () => void;
   onLeave: () => void;
   moveError: string;
@@ -62,6 +63,7 @@ export default function Sidebar({
   me,
   opponent,
   myTurn,
+  connected,
   onResign,
   onLeave,
   moveError,
@@ -69,6 +71,12 @@ export default function Sidebar({
 }: SidebarProps) {
   return (
     <aside className="sidebar">
+      <div className="sidebar-head">
+        <h2 className="sidebar-title">Chess</h2>
+        <span className={`conn ${connected ? 'on' : 'off'}`}>
+          {connected ? 'connected' : 'disconnected'}
+        </span>
+      </div>
       <div className="room-meta">
         <div><strong>Room:</strong> <span className="code">{room.code}</span></div>
         <div><strong>Variant:</strong> {variantName(variant)}</div>

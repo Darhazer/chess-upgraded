@@ -66,20 +66,22 @@ export default function App() {
   };
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>Chess</h1>
-        <span className={`conn ${connected ? 'on' : 'off'}`}>
-          {connected ? 'connected' : 'disconnected'}
-        </span>
-      </header>
+    <div className={`app${room ? ' app-game' : ''}`}>
+      {!room && (
+        <header className="app-header">
+          <h1>Chess</h1>
+          <span className={`conn ${connected ? 'on' : 'off'}`}>
+            {connected ? 'connected' : 'disconnected'}
+          </span>
+        </header>
+      )}
       {!bootstrapped ? (
         <p className="reconnecting">Reconnecting…</p>
       ) : !room ? (
         <Lobby onJoined={joinRoom} />
       ) : (
         <ErrorBoundary key={room.code} onReset={leave}>
-          <Game room={room} state={state} onLeave={leave} />
+          <Game room={room} state={state} connected={connected} onLeave={leave} />
         </ErrorBoundary>
       )}
     </div>
