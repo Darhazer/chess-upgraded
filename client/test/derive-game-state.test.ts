@@ -78,6 +78,34 @@ describe('deriveGameState', () => {
     assert.deepEqual([...g.glowSquares], ['e1']);
   });
 
+  it('rpg: glow marks squares whose piece has at least one affordable upgrade', () => {
+    const g = deriveGameState(
+      { color: 'w' } as SavedRoom,
+      {
+        ...baseState,
+        variant: 'rpg',
+        pieces: {
+          e1: { slotId: 'w-e1', color: 'w', currentType: 'k', xp: 0, upgrades: [] },
+          d2: {
+            slotId: 'w-d2', color: 'w', currentType: 'p', xp: 3,
+            upgrades: [
+              { type: 'n', cost: 3, affordable: true },
+              { type: 'q', cost: 9, affordable: false },
+            ],
+          },
+          e2: {
+            slotId: 'w-e2', color: 'w', currentType: 'p', xp: 0,
+            upgrades: [{ type: 'n', cost: 3, affordable: false }],
+          },
+        },
+      },
+    );
+    assert.equal(g.variant, 'rpg');
+    assert.ok(g.glowSquares.has('d2'));
+    assert.ok(!g.glowSquares.has('e1'));
+    assert.ok(!g.glowSquares.has('e2'));
+  });
+
   it('passes status, result, history through', () => {
     const result = { result: 'white', reason: 'resignation' };
     const history = [{ kind: 'move', san: 'e4' }];

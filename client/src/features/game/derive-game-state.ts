@@ -53,10 +53,20 @@ export function deriveGameState(room: SavedRoom, state: ServerRoomState | null |
   // Cannibal Chess: { square: movementType } for kings that have cannibalised.
   const kingOverrides = state?.kingOverrides || {};
   const myTurn = state?.status === 'playing' && state?.turn === room.color;
-  // The gold glow marks upgraded pieces (chess-upgraded) or cannibalised kings.
-  const glowSquares = variant === 'cannibal'
-    ? new Set(Object.keys(kingOverrides))
-    : new Set(upgraded);
+  const pieces = state?.pieces || {};
+  // The gold glow marks upgraded pieces (chess-upgraded), cannibalised kings,
+  // or — in the RPG variant — pieces whose current XP can afford an upgrade.
+  let glowSquares: Set<string>;
+  if (variant === 'cannibal') {
+    glowSquares = new Set(Object.keys(kingOverrides));
+  } else if (variant === 'rpg') {
+    glowSquares = new Set();
+    for (const [square, info] of Object.entries(pieces)) {
+      if (info.upgrades.some((u) => u.affordable)) glowSquares.add(square);
+    }
+  } else {
+    glowSquares = new Set(upgraded);
+  }
   return {
     orientation: room.color === 'b' ? 'black' : 'white',
     fen: state?.fen || 'start',
@@ -73,7 +83,7 @@ export function deriveGameState(room: SavedRoom, state: ServerRoomState | null |
     history: state?.history || [],
     material: state?.material || { w: 0, b: 0 },
     offBoard: state?.offBoard || { w: [], b: [] },
-    pieces: state?.pieces || {},
+    pieces,
     lockedSquare: state?.lockedSquare ?? null,
   };
 }
