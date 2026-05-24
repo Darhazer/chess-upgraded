@@ -5,17 +5,19 @@
 
 import Board from './vendor/board.js';
 import CannibalBoard from './cannibal-board.js';
+import RpgBoard from './rpg-board.js';
 import { buildConfig, actionFromMove } from './variant.js';
 import type { MoveAction, PublicState } from './variant.js';
 import type { BoardConfiguration } from './vendor/const.js';
 
 // Instantiate the right (sub)class of the variant engine for a board-config.
 // Chess RPG plays standard chess at the move level — no upgraded custom moves,
-// no cannibal mutation — so the vendored Board (with an empty `upgraded` map)
-// is exactly the right brain for picking moves there. Build and upgrade
+// no cannibal mutation — so RpgBoard inherits the vendored move search and
+// only overrides `calculateScore` to value territory. Build and upgrade
 // decisions are made above this layer in ../rpg-bot.ts.
 function boardFor(cfg: BoardConfiguration): Board {
   if (cfg.variant === 'cannibal') return new CannibalBoard(cfg);
+  if (cfg.variant === 'rpg') return new RpgBoard(cfg);
   return new Board(cfg);
 }
 
