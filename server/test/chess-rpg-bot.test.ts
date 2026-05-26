@@ -11,15 +11,16 @@ import { slotId } from '../../shared/chess-rpg-rules.js';
 // All tests run on the main thread — no worker pool needed.
 
 describe('rpg-bot: decideBuild', () => {
-  it('picks the highest-cost enabled slot', () => {
+  it('prefers a minor-piece build over a rook in the opening', () => {
     const e = new ChessRpgEngine();
-    e.material.w = 5; // affords knight (3) and rook (5)
+    e.material.w = 5; // affords knight (3), bishop (3), and rook (5)
     e.actionThisTurn = { w: false, b: false };
     const choice = decideBuild(e, 'w');
     assert.ok(choice, 'a build candidate exists');
-    // Rook (cost 5) > knight/bishop (3) > pawn (1)
-    assert.equal(choice.value, 5);
-    assert.match(choice.action.slotId, /-a1$|-h1$/);
+    // No minors on board → knight/bishop priority dominates rook priority,
+    // so the bot must build a knight or bishop (not a rook), even though
+    // the rook is the more expensive slot.
+    assert.match(choice.action.slotId, /-b1$|-g1$|-c1$|-f1$/);
   });
 
   it('returns null when no slot is enabled', () => {
@@ -31,9 +32,7 @@ describe('rpg-bot: decideBuild', () => {
   it('skips slots whose home square is occupied', () => {
     const e = new ChessRpgEngine();
     // Hand-build a queen on d1, then look for a build for white. The
-    // off-board d1 slot is now on-board, so it won't appear in the pool;
-    // confirm we pick something else (e.g. a rook at a1) with sufficient
-    // material.
+    // off-board d1 slot is now on-board, so it won't appear in the pool.
     e.material.w = 100;
     assert.equal(e.tryBuild(slotId('w', 'd1')).ok, true);
     // White still has to move; complete the turn with a king step.
@@ -43,8 +42,16 @@ describe('rpg-bot: decideBuild', () => {
     e.material.w = 100; // top up so we can afford anything
     const choice = decideBuild(e, 'w');
     assert.ok(choice);
-    // Queen home already occupied — bot must pick a rook (next-highest cost).
-    assert.equal(choice.value, 5);
+    // Queen home (d1) occupied; bot still develops a minor first.
+    assert.match(choice.action.slotId, /-b1$|-g1$|-c1$|-f1$/);
+  });
+
+  it('picks a pawn as the last-resort build when nothing else is affordable', () => {
+    const e = new ChessRpgEngine();
+    e.material.w = 1; // pawn (1) only
+    const choice = decideBuild(e, 'w');
+    assert.ok(choice);
+    assert.match(choice.action.slotId, /-[abcdefgh]2$/, 'a pawn-home slot');
   });
 });
 
@@ -191,15 +198,15 @@ describe('rpg-bot: safety filter', () => {
 
   it('decideBuild skips an unsafe home and picks the next-best safe one', () => {
     const e = new ChessRpgEngine();
-    // Black pawn at g2 attacks h1 (rook home) AND f1 (bishop home). Other
-    // rook home (a1) is safe. With material=5, the bot should still build a
-    // rook — but on a1, not h1.
+    // Black pawn at h2 attacks g1 (white knight home). The bot should not
+    // build a knight on g1; it should pick another safe high-priority slot.
     e.chess.load('4k3/8/8/8/8/8/3PPP1p/4K3 w - - 0 1');
     e.material.w = 5;
     const choice = decideBuild(e, 'w');
     assert.ok(choice);
-    assert.equal(choice.value, 5);
-    assert.equal(choice.action.slotId, slotId('w', 'a1'));
+    assert.notEqual(choice.action.slotId, slotId('w', 'g1'), 'must not build into the h2 pawn’s attack');
+    const home = choice.action.slotId.split('-')[1]!;
+    assert.equal(isSquareSafeForPiece(e, home, 'w', choice.value), true);
   });
 
   it('decideBuild returns null when every affordable slot is unsafe', () => {

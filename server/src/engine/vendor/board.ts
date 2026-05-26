@@ -70,6 +70,17 @@ const SCORE = {
 
 const PIECE_VALUE_MULTIPLIER = 10;
 
+// Opening-phase development incentives. Material is scored at x10 (pawn=10),
+// so -3 ≈ a third of a pawn — small enough that a real tactic always wins,
+// big enough that an equal-material choice prefers the developing move.
+// See calculateScore.
+const UNMOVED_MINOR_PENALTY = -3;
+const KING_WANDER_PENALTY = -5;
+const UNMOVED_MINOR_HOME: Record<string, EnginePiece> = {
+  B1: 'N', G1: 'N', C1: 'B', F1: 'B',
+  B8: 'n', G8: 'n', C8: 'b', F8: 'b',
+};
+
 // VARIANT: Chebyshev distance between two squares ('E1', 'C3' -> 2).
 function squareDistance(a: string, b: string): number {
   const df = Math.abs(a.charCodeAt(0) - b.charCodeAt(0));
@@ -1014,20 +1025,26 @@ export default class Board {
       level++;
     }
     const scoreTable: ScoreEntry[] = [];
-    const initialScore = this.calculateScore(this.getPlayingColor());
     const moves = this.getMoves();
-    for (const from in moves) {
-      moves[from]!.map((to) => {
-        const testBoard = this.getTestBoard();
-        const wasScoreChanged = Boolean(testBoard.getPiece(to));
-        testBoard.move(from, to);
-        scoreTable.push({
-          from,
-          to,
-          score: testBoard.testMoveScores(this.getPlayingColor(), level, wasScoreChanged, wasScoreChanged ? testBoard.calculateScore(this.getPlayingColor()) : initialScore, to).score +
-            testBoard.calculateScoreByPiecesLocation(this.getPlayingColor()) +
-            (Math.floor(Math.random() * (this.configuration.halfMove > 10 ? this.configuration.halfMove - 10 : 1) * 10) / 10),
-        });
+    // Root move ordering: captures first by MVV-LVA, quiet moves after.
+    // Alpha-beta inside `testMoveScores` benefits proportionally to how
+    // strong the ordering is, and at the root the gain is largest because
+    // every root move kicks off a fresh subtree with no prior cutoff.
+    const orderedRootMoves = this.orderMoves(moves);
+    for (const { from, to } of orderedRootMoves) {
+      const testBoard = this.getTestBoard();
+      const wasScoreChanged = Boolean(testBoard.getPiece(to));
+      testBoard.move(from, to);
+      scoreTable.push({
+        from,
+        to,
+        score: testBoard.testMoveScores(this.getPlayingColor(), level, wasScoreChanged, null, to).score +
+          testBoard.calculateScoreByPiecesLocation(this.getPlayingColor()) +
+          // Tiny jitter only to break *exact* ties — anything bigger would
+          // drown small positional eval differences. The old halfMove-scaled
+          // noise grew to ~±20 score units by move 30 (more than a knight),
+          // which is why the bot looked random in middlegames.
+          Math.random() * 0.01,
       });
     }
 
@@ -1035,6 +1052,29 @@ export default class Board {
       return previous.score < next.score ? 1 : previous.score > next.score ? -1 : 0;
     });
     return scoreTable;
+  }
+
+  // MVV-LVA-ish ordering: flatten {from:[to,...]} into an array sorted with
+  // captures first (highest victim value, lowest attacker value first), then
+  // quiet moves. Used by both the root and the recursive search to maximize
+  // alpha-beta cutoffs.
+  orderMoves(moves: Record<EngineSquare, EngineSquare[]>): Array<{ from: EngineSquare; to: EngineSquare }> {
+    const candidates: Array<{ from: EngineSquare; to: EngineSquare; orderKey: number }> = [];
+    for (const from in moves) {
+      const attacker = this.getPiece(from);
+      const attackerVal = attacker ? getPieceValue(attacker) : 0;
+      for (const to of moves[from]!) {
+        const bareTo = to[0] === TELEPORT_PREFIX ? to.slice(TELEPORT_PREFIX.length) : to;
+        const victim = this.getPiece(bareTo);
+        const victimVal = victim ? getPieceValue(victim) : 0;
+        // 16× weight on the victim so a pawn taking a queen always beats a
+        // queen taking a pawn; quiet moves get 0 and trail the captures.
+        const orderKey = victim ? (victimVal * 16 - attackerVal) : 0;
+        candidates.push({ from, to, orderKey });
+      }
+    }
+    candidates.sort((a, b) => b.orderKey - a.orderKey);
+    return candidates;
   }
 
   shouldIncreaseLevel(): boolean {
@@ -1068,8 +1108,18 @@ export default class Board {
     return new Ctor(testConfiguration);
   }
 
-  testMoveScores(playingPlayerColor: EngineColor, level: number, capture: boolean, initialScore: number | null, _move: EngineSquare, depth = 1): { score: number; max: boolean } {
+  testMoveScores(
+    playingPlayerColor: EngineColor,
+    level: number,
+    capture: boolean,
+    initialScore: number | null,
+    _move: EngineSquare,
+    depth = 1,
+    alpha: number = SCORE.MIN,
+    beta: number = SCORE.MAX,
+  ): { score: number; max: boolean } {
     void _move;
+    void initialScore;
     let nextMoves: Record<EngineSquare, EngineSquare[]> | null = null;
     if (depth < AI_DEPTH_BY_LEVEL.EXTENDED[level]! && this.hasPlayingPlayerCheck()) {
       nextMoves = this.getMoves(this.getPlayingColor());
@@ -1085,34 +1135,45 @@ export default class Board {
     }
 
     if (!nextMoves) {
-      if (initialScore !== null) return { score: initialScore, max: false };
-      const score = this.calculateScore(playingPlayerColor);
-      return {
-        score,
-        max: false,
-      };
+      // Always recompute at the leaf so variant evals whose value depends on
+      // piece *positions* (e.g. RpgBoard's territory bonus) aren't masked by
+      // a material-only initialScore cached at the previous capture. The
+      // initialScore optimisation was correct for material-only eval but
+      // silently broke the territory term added in commit e3fee91.
+      return { score: this.calculateScore(playingPlayerColor), max: false };
     }
 
-    let bestScore = this.getPlayingColor() === playingPlayerColor ? SCORE.MIN : SCORE.MAX;
+    const isMaximizing = this.getPlayingColor() === playingPlayerColor;
+    let bestScore = isMaximizing ? SCORE.MIN : SCORE.MAX;
     let maxValueReached = false;
-    for (const from in nextMoves) {
-      if (maxValueReached) continue;
-      nextMoves[from]!.map((to) => {
-        if (maxValueReached) return;
-        const testBoard = this.getTestBoard();
-        const wasScoreChanged = Boolean(testBoard.getPiece(to));
-        testBoard.move(from, to);
-        if (testBoard.hasNonPlayingPlayerCheck()) return;
-        const result = testBoard.testMoveScores(playingPlayerColor, level, wasScoreChanged, wasScoreChanged ? testBoard.calculateScore(playingPlayerColor) : initialScore, to, depth + 1);
-        if (result.max) {
-          maxValueReached = true;
-        }
-        if (this.getPlayingColor() === playingPlayerColor) {
-          bestScore = Math.max(bestScore, result.score);
-        } else {
-          bestScore = Math.min(bestScore, result.score);
-        }
-      });
+    const ordered = this.orderMoves(nextMoves);
+    for (const { from, to } of ordered) {
+      if (maxValueReached) break;
+      const testBoard = this.getTestBoard();
+      const wasScoreChanged = Boolean(testBoard.getPiece(to));
+      testBoard.move(from, to);
+      if (testBoard.hasNonPlayingPlayerCheck()) continue;
+      const result = testBoard.testMoveScores(
+        playingPlayerColor,
+        level,
+        wasScoreChanged,
+        null,
+        to,
+        depth + 1,
+        alpha,
+        beta,
+      );
+      if (result.max) {
+        maxValueReached = true;
+      }
+      if (isMaximizing) {
+        if (result.score > bestScore) bestScore = result.score;
+        if (bestScore > alpha) alpha = bestScore;
+      } else {
+        if (result.score < bestScore) bestScore = result.score;
+        if (bestScore < beta) beta = bestScore;
+      }
+      if (beta <= alpha) break;
     }
 
     return { score: bestScore, max: false };
@@ -1151,6 +1212,14 @@ export default class Board {
       }
     }
 
+    // Development incentive for the opening phase. Coefficients are small
+    // relative to material (one pawn = 10 score units): they only break ties
+    // the deeper search can't otherwise distinguish — they shouldn't ever
+    // outweigh real tactics. Skipped for the RPG variant, whose opening has
+    // different mechanics (no castling, pieces start off-board, king
+    // movement isn't a "weakness" in the same sense).
+    const isOpening = this.configuration.fullMove < 12 && this.configuration.variant !== 'rpg';
+
     for (const location in this.configuration.pieces) {
       const piece = this.getPiece(location);
       if (!piece) continue;
@@ -1160,6 +1229,35 @@ export default class Board {
       if (this.configuration.upgraded[location]) {
         const bonus = (UPGRADE_BONUS as Record<string, number>)[piece.toLowerCase()] || 0;
         scoreIndex += sign * bonus;
+      }
+      // Penalize minor pieces still on their starting square in the opening,
+      // and a king that has wandered without castling. Catches the pathology
+      // the transcripts showed — bot shuffling a/h-pawns and walking the
+      // king around instead of developing.
+      if (isOpening) {
+        if (UNMOVED_MINOR_HOME[location] === piece) {
+          scoreIndex += sign * UNMOVED_MINOR_PENALTY;
+        }
+      }
+    }
+
+    if (isOpening && this.configuration.fullMove > 4) {
+      // King wandering without castling: pawns shielding it are still on
+      // their home ranks, the king sits exposed in the centre or has
+      // walked one or two squares. Penalize, not catastrophic — the king
+      // might genuinely need to move out of check.
+      for (const [color, kingChar, home, castled1, castled2] of [
+        [COLORS.WHITE, 'K', 'E1', 'C1', 'G1'],
+        [COLORS.BLACK, 'k', 'E8', 'C8', 'G8'],
+      ] as const) {
+        const sign = color === playerColor ? 1 : -1;
+        const onHome = this.configuration.pieces[home] === kingChar;
+        const onCastleSquare =
+          this.configuration.pieces[castled1] === kingChar ||
+          this.configuration.pieces[castled2] === kingChar;
+        if (!onHome && !onCastleSquare) {
+          scoreIndex += sign * KING_WANDER_PENALTY;
+        }
       }
     }
 

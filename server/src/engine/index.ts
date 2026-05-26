@@ -36,15 +36,31 @@ function clampLevel(level: unknown): number {
 
 export interface ChooseOptions {
   level?: number;
+  // Engine-side `from` square (UPPERCASE or lowercase) to forbid as the
+  // source of the chosen move. Used by Chess RPG: a piece built/upgraded
+  // this turn is locked and cannot move, but the vendored search has no
+  // concept of that — passing the locked square here lets the search skip
+  // it instead of having the caller pick a random fallback move.
+  excludeFrom?: string;
 }
 
 // Pick the bot's action for the given position. Returns a RulesEngine action
 // ({kind:'move',from,to[,promotion]}) or null when there's nothing to play
-// (game over / no legal action).
-export function chooseVariantAction(publicState: PublicState, { level = DEFAULT_BOT_LEVEL }: ChooseOptions = {}): MoveAction | null {
+// (game over / no legal action / every legal move is excluded).
+export function chooseVariantAction(publicState: PublicState, { level = DEFAULT_BOT_LEVEL, excludeFrom }: ChooseOptions = {}): MoveAction | null {
   const cfg = buildConfig(publicState);
   const board = boardFor(cfg);
-  const best = board.calculateAiMove(clampLevel(level)); // { from, to, score } | undefined
+  const excludeUpper = excludeFrom ? excludeFrom.toUpperCase() : null;
+  if (!excludeUpper) {
+    const best = board.calculateAiMove(clampLevel(level));
+    if (!best) return null;
+    return actionFromMove(best.from, best.to, cfg);
+  }
+  // Re-rank to skip locked-square moves rather than letting the caller
+  // fall back to a random legal move. `calculateAiMoves` returns the full
+  // sorted score table, so the cost is the same as the single-best path.
+  const scored = board.calculateAiMoves(clampLevel(level));
+  const best = scored.find((s) => s.from !== excludeUpper);
   if (!best) return null;
   return actionFromMove(best.from, best.to, cfg);
 }

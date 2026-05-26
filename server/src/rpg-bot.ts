@@ -67,18 +67,58 @@ export function isSquareSafeForPiece(
   return cheapestAttacker >= pieceCost;
 }
 
-// Best build candidate for `color`: the highest-cost enabled off-board slot
-// whose home square is currently safe (see isSquareSafeForPiece). Returns
-// null when nothing safe is buildable — the caller falls through to the
-// regular move search rather than dropping a piece on a fork.
+// Build priority by piece type, parametrised on the *current* army state.
+// Minor pieces lead in the opening; rooks come once a minor is out; the
+// queen waits until a rook or two minors are on board; pawns are the
+// fallback when nothing more useful is buildable. This replaces the old
+// "highest cost" rule, which (with material=4 in the opening) would pick
+// whichever of {knight, bishop, rook} appeared first in slot order — no
+// strategic intent, and once material climbed it locked the bot into
+// queen-first builds.
+const BUILD_PRIORITY: Record<BuildableType, (state: { minorsOnBoard: number; rooksOnBoard: number }) => number> = {
+  n: ({ minorsOnBoard }) => (minorsOnBoard < 2 ? 15 : 5),
+  b: ({ minorsOnBoard }) => (minorsOnBoard < 2 ? 14 : 5),
+  r: ({ minorsOnBoard, rooksOnBoard }) => (minorsOnBoard >= 1 && rooksOnBoard < 2 ? 10 : 3),
+  q: ({ minorsOnBoard, rooksOnBoard }) => (rooksOnBoard >= 1 || minorsOnBoard >= 2 ? 8 : 4),
+  p: () => 2,
+};
+
+// File-centrality tiebreaker: prefer central builds at the same priority
+// (so b/g knights beat a/h rooks when knights aren't already strictly higher).
+function fileCentrality(square: string): number {
+  const file = square[0]!;
+  if (file === 'd' || file === 'e') return 3;
+  if (file === 'c' || file === 'f') return 2;
+  if (file === 'b' || file === 'g') return 1;
+  return 0;
+}
+
+// Best build candidate for `color`: walks the off-board slots and picks the
+// highest-priority *and* safe one (see isSquareSafeForPiece). Returns null
+// when nothing safe is buildable — the caller falls through to the regular
+// move search rather than dropping a piece on a fork.
 export function decideBuild(engine: ChessRpgEngine, color: 'w' | 'b'): Candidate<RpgBuildAction> | null {
   const slots = engine._offBoardDescriptors()[color];
+  const pieces = engine._pieceInfoBySquare();
+  let minorsOnBoard = 0;
+  let rooksOnBoard = 0;
+  for (const sq in pieces) {
+    const info = pieces[sq]!;
+    if (info.color !== color) continue;
+    if (info.currentType === 'n' || info.currentType === 'b') minorsOnBoard++;
+    else if (info.currentType === 'r') rooksOnBoard++;
+  }
+  const state = { minorsOnBoard, rooksOnBoard };
   let best: Candidate<RpgBuildAction> | null = null;
+  let bestCentrality = -1;
   for (const slot of slots) {
     if (!slot.enabled) continue;
     if (!isSquareSafeForPiece(engine, slot.home, color, slot.cost)) continue;
-    if (!best || slot.cost > best.value) {
-      best = { action: { kind: 'build', slotId: slot.slotId }, value: slot.cost };
+    const priority = BUILD_PRIORITY[slot.homeType](state);
+    const centrality = fileCentrality(slot.home);
+    if (!best || priority > best.value || (priority === best.value && centrality > bestCentrality)) {
+      best = { action: { kind: 'build', slotId: slot.slotId }, value: priority };
+      bestCentrality = centrality;
     }
   }
   return best;

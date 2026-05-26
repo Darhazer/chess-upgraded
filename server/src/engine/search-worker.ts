@@ -13,11 +13,12 @@ interface SearchMessage {
   id: number;
   publicState: PublicState;
   level: number;
+  excludeFrom?: string;
 }
 
-parentPort.on('message', ({ id, publicState, level }: SearchMessage) => {
+parentPort.on('message', ({ id, publicState, level, excludeFrom }: SearchMessage) => {
   try {
-    parentPort!.postMessage({ id, action: chooseVariantAction(publicState, { level }) ?? null });
+    parentPort!.postMessage({ id, action: chooseVariantAction(publicState, { level, excludeFrom }) ?? null });
   } catch (err) {
     parentPort!.postMessage({ id, error: (err as Error)?.message || String(err) });
   }

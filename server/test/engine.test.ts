@@ -1,7 +1,7 @@
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { RulesEngine, type MoveActionInput, type ListedAction } from '../src/rules-engine.js';
-import { listVariantActions } from '../src/engine/index.js';
+import { chooseVariantAction, listVariantActions } from '../src/engine/index.js';
 import { chooseAction } from '../src/bot.js';
 import { searchPool } from '../src/engine/search-pool.js';
 import Board from '../src/engine/vendor/board.js';
@@ -191,5 +191,39 @@ describe('chooseAction (bot adapter)', () => {
     assert.equal(await chooseAction(e, { botColor: 'b' }), null); // white to move
     e.setOver({ result: 'draw', reason: 'agreement' });
     assert.equal(await chooseAction(e, { botColor: 'w' }), null);
+  });
+});
+
+// Regression tests for the bot tactical pathologies seen in the user-reported
+// transcripts. The engine plays a 2-3 ply alpha-beta search with a positional
+// eval and should at minimum avoid moves that hang a piece to a 1-move
+// recapture. These tests assert against the specific bad moves from the
+// transcripts rather than asserting a particular "best" move (the eval can
+// shift between several near-equal options), which keeps them robust to
+// further tuning.
+describe('bot tactical regressions', () => {
+  function chooseFrom(fen: string): MoveAction {
+    const e = new RulesEngine();
+    e.chess.load(fen);
+    const a = chooseVariantAction(e.publicState(), { level: 2 });
+    assert.ok(a, `expected a move for ${fen}`);
+    return a!;
+  }
+
+  it('does not play Nf6→e4 hanging the knight to Qxe4 / dxe4', () => {
+    // After 1.e4 a6 2.Nh3 Nf6 3.d3 b6 4.Qf3 e6 5.Bg5 h6 6.e5, the f6 knight
+    // is attacked twice; Ne4 walks into Qxe4 and dxe4 both.
+    const fen = 'rnbqkb1r/2pp1pp1/pp2pn1p/4P1B1/8/3P1Q1N/PPP2PPP/RN2KB1R b KQkq - 0 6';
+    const action = chooseFrom(fen);
+    assert.notEqual(`${action.from}${action.to}`, 'f6e4', `bot must not play Ne4 — chose ${JSON.stringify(action)}`);
+  });
+
+  it('does not play Ra8→a6 in the cannibal transcript position', () => {
+    // After 1.e4 a6 2.Qf3 e5 3.Nh3 c6 4.d3 a5 5.Bg5 Qc7 6.Bh4, the bot in
+    // the transcript played Ra6 — a strategically meaningless rook lift.
+    // We assert the bot finds *something* that isn't that.
+    const fen = 'rnb1kbnr/1pqp1ppp/2p5/p3p3/7B/3P1Q1N/PPP2PPP/RN2KB1R b KQkq - 4 6';
+    const action = chooseFrom(fen);
+    assert.notEqual(`${action.from}${action.to}`, 'a8a6', `bot must not play Ra6 — chose ${JSON.stringify(action)}`);
   });
 });

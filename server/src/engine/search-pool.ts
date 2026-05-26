@@ -48,6 +48,7 @@ interface Slot {
 interface Job {
   publicState: PublicState;
   level: number;
+  excludeFrom?: string;
   resolve: (value: MoveAction | null) => void;
   reject: (reason: Error) => void;
 }
@@ -83,15 +84,17 @@ export class SearchPool {
   }
 
   // Pick the bot's action for `publicState` at `level`. Resolves with a
-  // RulesEngine action ({kind:'move',...}) or null.
-  run(publicState: PublicState, level: number): Promise<MoveAction | null> {
+  // RulesEngine action ({kind:'move',...}) or null. `excludeFrom` forbids
+  // any move whose source square matches (used by Chess RPG to skip the
+  // turn's locked square).
+  run(publicState: PublicState, level: number, excludeFrom?: string): Promise<MoveAction | null> {
     if (this.size === 0) {
-      try { return Promise.resolve(chooseVariantAction(publicState, { level }) ?? null); }
+      try { return Promise.resolve(chooseVariantAction(publicState, { level, excludeFrom }) ?? null); }
       catch (err) { return Promise.reject(err as Error); }
     }
     this._ensureStarted();
     return new Promise<MoveAction | null>((resolve, reject) => {
-      const job: Job = { publicState, level, resolve, reject };
+      const job: Job = { publicState, level, excludeFrom, resolve, reject };
       const slot = this.workers.find((s) => !s.busy);
       if (slot) this._dispatch(slot, job);
       else this.queue.push(job);
@@ -151,7 +154,7 @@ export class SearchPool {
       (timer as { unref: () => void }).unref();
     }
     this.pending.set(id, { resolve: job.resolve, reject: job.reject, slot, timer });
-    slot.worker.postMessage({ id, publicState: job.publicState, level: job.level });
+    slot.worker.postMessage({ id, publicState: job.publicState, level: job.level, excludeFrom: job.excludeFrom });
   }
 
   _onMessage(slot: Slot, msg: WorkerResultMessage): void {

@@ -65,18 +65,16 @@ async function chooseMoveAction(
   { botColor, level }: { botColor: 'w' | 'b'; level: number },
 ): Promise<MoveAction | null> {
   let action: MoveAction | null = null;
+  // For Chess RPG, the just-built/upgraded piece can't move this turn. Tell
+  // the search directly to skip it — the previous random-fallback approach
+  // dropped the bot down to random play whenever the search picked the
+  // (new, often most attractive) locked piece, which was the main source
+  // of king-walks and aimless pawn pushes after a build.
+  const excludeFrom = engine instanceof ChessRpgEngine && engine.lockedSquare ? engine.lockedSquare : undefined;
   try {
-    action = await searchPool.run(engine.publicState(), level);
+    action = await searchPool.run(engine.publicState(), level, excludeFrom);
   } catch (err) {
     console.warn('[bot] engine search failed, falling back to a random legal move:', (err as Error)?.message);
-  }
-
-  // For Chess RPG, the just-built/upgraded piece can't move this turn. The
-  // vendored search doesn't know about that, so post-filter: if the chosen
-  // move comes from the locked square, fall back to a random non-locked move
-  // (engine.listActions already strips the locked source).
-  if (action && engine instanceof ChessRpgEngine && engine.lockedSquare && action.from === engine.lockedSquare) {
-    return randomLegalAction(engine, botColor);
   }
 
   if (action) {

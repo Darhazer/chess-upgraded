@@ -55,22 +55,29 @@ export const COLORS: { BLACK: EngineColor; WHITE: EngineColor } = {
   WHITE: 'white',
 };
 export const AI_LEVELS = [0, 1, 2, 3, 4] as const;
+// Search depths per level. The base engine searches BASE plies on quiet
+// positions and EXTENDED plies down a forcing line (check or recent capture).
+// Bumped at the default level (2) from 2/4 to 3/5: with alpha-beta + MVV-LVA
+// ordering (see board.ts) a 3-ply quiet search runs in well under the
+// per-search timeout, and the extra ply is what lets the bot stop walking
+// into 2-move tactics (e.g. Ne4 attacked by Qf3 — a 2-ply search couldn't
+// see the recapture because depth 2 is the end of the line for the bot).
 export const AI_DEPTH_BY_LEVEL: { BASE: Record<number, number>; EXTENDED: Record<number, number> } = {
   BASE: {
     0: 1,
     1: 2,
-    2: 2,
+    2: 3,
     3: 3,
-    4: 3,
+    4: 4,
     5: 4,
   },
   EXTENDED: {
     0: 2,
-    1: 2,
-    2: 4,
-    3: 4,
-    4: 5,
-    5: 5,
+    1: 3,
+    2: 5,
+    3: 5,
+    4: 6,
+    5: 6,
   },
 };
 export const NEW_GAME_SETTINGS = {
