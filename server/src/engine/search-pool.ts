@@ -17,14 +17,20 @@
 
 import { Worker } from 'node:worker_threads';
 import { availableParallelism } from 'node:os';
+import { existsSync } from 'node:fs';
 import { chooseVariantAction } from './index.js';
 import type { MoveAction, PublicState } from './variant.js';
 
-// The worker entry point. When the process is started with `tsx` (dev/test)
-// the .ts source exists and tsx-aware workers can load it directly. When run
-// through `tsc` and compiled .js exists, the same URL resolves to that. The
-// pool falls back to `.ts` if `.js` is missing.
-const WORKER_URL = new URL('./search-worker.js', import.meta.url);
+// The worker entry point. When run through `tsc` the compiled .js exists and
+// is loaded directly. When the process is started with `tsx` (dev/test, and
+// the production Docker image, which runs `tsx src/index.ts`) only the .ts
+// source exists on disk, so we fall back to it — tsx-aware workers load it.
+// Resolved once at module load: `.js` if present, else `.ts`.
+const WORKER_URL = (() => {
+  const js = new URL('./search-worker.js', import.meta.url);
+  if (existsSync(js)) return js;
+  return new URL('./search-worker.ts', import.meta.url);
+})();
 
 // A search that runs longer than this is treated as a hung worker: the task
 // is rejected (the bot adapter then falls back to a random legal move) and
